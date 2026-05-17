@@ -20,7 +20,6 @@ import encode
 import password
 from password_ipc import TempPasswordThread
 import tools
-import sshtools
 import logger
 from mount import MountControl
 from exceptions import MountException, EncodeValueError
@@ -287,9 +286,10 @@ class EncFS_mount(MountControl):
 
 class EncFS_SSH(EncFS_mount):
     """
-    Mount encrypted remote path with sshfs and encfs.
-    Mount / with encfs --reverse.
-    rsync will then sync the encrypted view on / to the remote path
+    DEPRECATED: Mount encrypted remote path with sshfs and encfs.
+    This class is no longer functional as sshtools has been removed.
+    It is kept as a stub for backward compatibility with existing
+    config files that reference 'ssh_encfs' mode.
     """
 
     def __init__(
@@ -310,8 +310,9 @@ class EncFS_SSH(EncFS_mount):
         self.args = args
         self.kwargs = kwargs
 
-        self.ssh = sshtools.SSH(
-            *self.args, symlink=False, **self.splitKwargs('ssh')
+        raise MountException(
+            'SSH encrypted (EncFS) mode is no longer supported. '
+            'Please migrate to a restic backend (Local, SFTP, S3, etc.).'
         )
         self.rev_root = EncFS_mount(
             *self.args, symlink=False, **self.splitKwargs('encfs_reverse')

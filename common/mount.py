@@ -25,8 +25,7 @@
         - Please use ``self.currentMountpoint`` as your local mountpoint.
         - Your class should inherit from :py:class:`mount.MountControl`.
 
-        As real usage example see the two classes :py:class:`sshtools.SSH` and
-        :py:class:`encfstools.EncFS_mount`.
+        As real usage example see the class :py:class:`encfstools.EncFS_mount`.
 
     This is the template: ::
 
@@ -299,7 +298,7 @@ class Mount:
         if mode is None:
             mode = self.config.snapshotsMode(self.profile_id)
 
-        # sshtools.SSH, encfstools.EncFS_mount, encfstools.EncFS_SSH
+        # encfstools.EncFS_mount, gocryptfstools.GocryptfsMount, etc.
         Mounttools = self.config.SNAPSHOT_MODES[mode][0]
 
         # "local" mode

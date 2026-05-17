@@ -388,7 +388,11 @@ class Config(configfile.ConfigFileWithProfiles):
         if mode == 'local':
             return self.get_snapshots_path(profile_id)
 
-        # else: ssh/local_encfs/ssh_encfs/local_gocryptfs
+        # For restic remote backends, return the repo URI instead of a mount
+        if mode in self.RESTIC_MODES and mode != 'local':
+            return self.buildResticRepoUri(profile_id)
+
+        # else: local_encfs/local_gocryptfs (modes that still use mount)
 
         symlink = f'{profile_id}_{os.getpid()}'
         if tmp_mount:

@@ -15,18 +15,18 @@ General Public License v2 (GPLv2). See LICENSES directory or go to
 [![Translation status](https://translate.codeberg.org/widget/backintime/common/svg-badge.svg)](https://translate.codeberg.org/engage/backintime)
 [![REUSE status](https://api.reuse.software/badge/github.com/bit-team/backintime)](https://api.reuse.software/info/github.com/bit-team/backintime)
 
-# Back In Time
+# Back In Time Restic
 
-_Back In Time_ is a comfortable and well-configurable graphical frontend for
-incremental backups using [`rsync`](https://rsync.samba.org/), with a
-command-line version also available. Modified files are transferred, while
-unchanged files are linked to the new folder using rsync's hard link feature,
-saving storage space. Restoring is straightforward via file manager, command
-line or _Back In Time_ itself.
+_Back In Time Restic_ is a comfortable and well-configurable graphical frontend
+for incremental backups using [`restic`](https://restic.net/), with a
+command-line version also available. Restic provides fast, secure, and
+deduplicated backups with built-in encryption. It supports multiple backends
+including local storage, SFTP, Amazon S3, Backblaze B2, Azure Blob Storage,
+Google Cloud Storage, and REST servers.
 
 It is written in Python3 and available for all major GNU/Linux distributions
 as command line tool `backintime` and GUI `backintime-qt`. Backups can be
-scheduled and stored locally or remotely through SSH.
+scheduled and stored locally or on any restic-supported remote backend.
 
 More background info in [CONTRIBUTING](CONTRIBUTING.md) and
 [HISTORY](HISTORY.md).

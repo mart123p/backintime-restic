@@ -157,6 +157,9 @@ def collect_diagnostics():
 
     result['external-programs']['rsync'] = _get_rsync_info()
 
+    # restic
+    result['external-programs']['restic'] = _get_restic_info()
+
     # ssh
     result['external-programs']['ssh'] = _get_extern_versions(['ssh', '-V'])
 
@@ -348,6 +351,22 @@ def _get_rsync_info():
                     f'{k}: {v}' for k, v in info[key].items())
 
     return info
+
+
+def _get_restic_info():
+    """Collect info about restic.
+
+    Returns:
+        str or dict: Collected info.
+    """
+    try:
+        import tools as _tools
+        version = _tools.resticVersion()
+        if version:
+            return {'version': version}
+        return 'not installed'
+    except Exception:
+        return 'not installed'
 
 
 def _get_os_release():
