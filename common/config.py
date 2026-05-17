@@ -812,6 +812,9 @@ class Config(configfile.ConfigFileWithProfiles):
                 google_project_id=self.gsProjectId(profile_id)
             )
         return {}
+
+    # SSH (legacy methods kept for backward compatibility)
+    def sshSnapshotsPath(self, profile_id = None):
         #?Snapshot path on remote host. If the path is relative (no leading '/')
         #?it will start from remote Users homedir. An empty path will be replaced
         #?with './'.;absolute or relative path

@@ -293,5 +293,3 @@ class ExpertOptionsTab(QDialog):
         self._cb_nice_on_remote.setEnabled(enabled)
         self._cb_ionice_on_remote.setEnabled(enabled)
         self._cb_nocache_on_remote.setEnabled(enabled)
-
- 

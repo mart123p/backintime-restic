@@ -314,11 +314,6 @@ class EncFS_SSH(EncFS_mount):
             'SSH encrypted (EncFS) mode is no longer supported. '
             'Please migrate to a restic backend (Local, SFTP, S3, etc.).'
         )
-        self.rev_root = EncFS_mount(
-            *self.args, symlink=False, **self.splitKwargs('encfs_reverse')
-        )
-
-        super(EncFS_SSH, self).__init__(*self.args, **self.splitKwargs('encfs'))
 
     def mount(self, *args, **kwargs):
         """

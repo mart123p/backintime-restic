@@ -360,7 +360,7 @@ class TestNoRsyncReferences(unittest.TestCase):
         common_dir = Path(__file__).resolve().parent.parent
         qt_dir = common_dir.parent / 'qt'
 
-        rsync_refs = []
+        sshtools_refs = []
         for search_dir in (common_dir, qt_dir):
             for py_file in search_dir.rglob('*.py'):
                 # Skip test files and .po files
@@ -370,15 +370,15 @@ class TestNoRsyncReferences(unittest.TestCase):
                     content = py_file.read_text()
                     for i, line in enumerate(content.split('\n'), 1):
                         if 'import sshtools' in line:
-                            rsync_refs.append(
+                            sshtools_refs.append(
                                 f'{py_file}:{i}: {line.strip()}')
                 except (UnicodeDecodeError, PermissionError):
                     continue
 
         self.assertEqual(
-            rsync_refs, [],
+            sshtools_refs, [],
             f'Found sshtools references in source files:\n'
-            + '\n'.join(rsync_refs)
+            + '\n'.join(sshtools_refs)
         )
 
 

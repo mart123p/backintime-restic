@@ -595,11 +595,9 @@ class GeneralTab(QDialog):
         self.config.setPassword(password_1, mode=mode)
         self.config.setPassword(password_2, mode=mode, pw_id=2)
 
-        if mode not in ('local', 'local_encfs', 'local_gocryptfs'):
-            # For remote restic backends, we don't need mount checking
-            # Restic handles remote access natively
-            pass
-        elif mode != 'local':
+        # Mount checking only needed for encryption modes (local_encfs, local_gocryptfs)
+        # Restic remote backends handle access natively, no mount needed
+        if mode in ('local_encfs', 'local_gocryptfs'):
             mnt = mount.Mount(cfg=self.config, tmp_mount=True, parent=self)
             hash_id = self._do_alot_pre_mount_checking(mnt, mount_kwargs)
 
@@ -637,8 +635,8 @@ class GeneralTab(QDialog):
             if success is False:
                 return False
 
-        # umount
-        if mode not in ('local',) + tuple(self.config.RESTIC_MODES):
+        # umount encryption backends
+        if mode in ('local_encfs', 'local_gocryptfs'):
             try:
                 mnt.umount(hash_id=hash_id)
 
