@@ -59,8 +59,7 @@ class General(unittest.TestCase):
         self.assertIn('python', result['python-setup'], 'python')
 
         # 2nd level "external-programs"
-        minimal_keys = [
-            'rsync', 'shell', 'RSYNC_OLD_ARGS', 'RSYNC_PROTECT_ARGS']
+        minimal_keys = ['restic', 'shell']
         for key in minimal_keys:
             self.assertIn(key, result['external-programs'], key)
 

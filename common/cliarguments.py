@@ -188,7 +188,7 @@ class ParserAgent:
         self._create_common_parser()
         self._create_profile_parser()
         self._create_snapshots_only_parser()  # deprecated
-        self._create_rsync_only_parser()
+        self._create_backup_options_parser()
 
     @property
     def main_parser(self) -> ArgumentParser:
@@ -309,8 +309,8 @@ class ParserAgent:
 
         self._reusable_parsers['snapshots'] = parser
 
-    def _create_rsync_only_parser(self):
-        """Arguments used only by rsync related commands:
+    def _create_backup_options_parser(self):
+        """Arguments used by backup related commands:
             - backup
             - restore
         """
@@ -321,7 +321,7 @@ class ParserAgent:
             help='force to use checksum for checking if '
                  'files have been changed')
 
-        self._reusable_parsers['rsync'] = parser
+        self._reusable_parsers['backup_options'] = parser
 
     def _create_cmd_backup(self):
         name = 'backup'
@@ -333,7 +333,7 @@ class ParserAgent:
             name,
             parents=[
                 self._reusable_parsers['profile'],
-                self._reusable_parsers['rsync'],
+                self._reusable_parsers['backup_options'],
                 self._reusable_parsers['common'],
             ],
             help='create new backup, if scheduled and not on battery',
@@ -366,7 +366,7 @@ class ParserAgent:
             parents=[
                 self._reusable_parsers['common'],
                 self._reusable_parsers['profile'],
-                self._reusable_parsers['rsync']
+                self._reusable_parsers['backup_options']
             ],
             help='take new backup in background',
             description=desc)
@@ -560,7 +560,7 @@ class ParserAgent:
             name,
             parents=[
                 self._reusable_parsers['profile'],
-                self._reusable_parsers['rsync'],
+                self._reusable_parsers['backup_options'],
                 self._reusable_parsers['common'],
             ],
             help='restores backup or files or folders from them',
@@ -618,7 +618,7 @@ class ParserAgent:
             '--only-new',
             action='store_true',
             help='Only restore files which do not exist or are newer than '
-                 'those in destination. Using "rsync --update" option.')
+                 'those in destination.')
 
         self.parsers[name] = parser
 

@@ -30,6 +30,7 @@ import config
 import configfile
 import logger
 import tools
+import restictools
 import encfstools
 import encode
 import mount
@@ -70,26 +71,6 @@ class Snapshots:
 
         self.clearIdCache()
         self.clearNameCache()
-
-        # rsync --info=progress2 output
-        # search for:     517.38K  26%   14.46MB/s    0:02:36
-        # or:             497.84M   4% -449.39kB/s   ??:??:??
-        # but filter out: 517.38K  26%   14.46MB/s    0:00:53 (xfr#53, to-chk=169/452)
-        #                 because this shows current run time
-        self.reRsyncProgress = re.compile(
-            # trash at start
-            r'.*?'
-            # bytes sent
-            r'(\d*[,\.]?\d+[KkMGT]?)\s+'
-            # percent done
-            r'(\d*)%\s+'
-            # speed
-            r'(-?\d*[,\.]?\d*[KkMGT]?B/s)\s+'
-            # estimated time of arrival
-            r'([\d\?]+:[\d\?]{2}:[\d\?]{2})'
-            # trash at the end
-            r'(.*$)'
-        )
 
         self.lastBusyCheck = datetime.datetime(1, 1, 1)
         self.restorePermissionFailed = False
@@ -460,7 +441,7 @@ class Snapshots:
                 only_new = False):
         """
         Restore one or more files from snapshot ``sid`` to either original
-        or a different destination. Restore is done with rsync. If available
+        or a different destination. Restore is done with restic. If available
         permissions will be restored from ``fileinfo.bz2``.
 
         Args:
@@ -468,20 +449,19 @@ class Snapshots:
             paths (:py:class:`list`, :py:class:`tuple` or :py:class:`str`):
                                         single path (str) or multiple
                                         paths (list, tuple) that should be
-                                        restored. For every path this will run
-                                        a new rsync process. Permissions will be
-                                        restored for all paths in one run
+                                        restored.
             callback (method):          callable instance which will handle
                                         messages
             restore_to (str):           full path to restore to. If empty
                                         restore to original destination
             delete (bool):              delete newer files which are not in the
-                                        snapshot
-            backup (bool):              create backup files (``*.backup.YYYYMMDD``)
-                                        before changing or deleting local files.
+                                        snapshot (not supported with restic)
+            backup (bool):              create backup files before changing or
+                                        deleting local files (not supported
+                                        with restic)
             only_new (bool):            Only restore files which do not exist
-                                        or are newer than those in destination.
-                                        Using ``rsync --update`` option.
+                                        or are newer than those in destination
+                                        (not supported with restic).
         """
         instance = ApplicationInstance(
             pidFile=self.config.restoreInstanceFile(),
@@ -504,65 +484,31 @@ class Snapshots:
                     %(', '.join(paths), restore_to),
                     self)
 
-        info = sid.info
+        repo = self.config.buildResticRepoUri()
+        password = self.config.resticPassword()
+        extra_env = self.config.buildResticExtraEnv()
 
-        cmd_prefix = tools.rsyncPrefix(self.config, no_perms=False, use_mode=['ssh'])
-        cmd_prefix.extend(('-R', '-v'))
+        # Determine target directory
+        target = restore_to if restore_to else '/'
 
-        if backup:
-            cmd_prefix.extend(('--backup', '--suffix=%s' % self.backupSuffix()))
+        # Determine restic snapshot ID from SID
+        snapshot_id = sid.sid if hasattr(sid, 'sid') else str(sid)
 
-        if delete:
-            cmd_prefix.append('--delete')
-            cmd_prefix.append('--filter=protect %s' % self.config.snapshotsPath())
-            cmd_prefix.append('--filter=protect %s' % self.config._LOCAL_DATA_FOLDER)
-            cmd_prefix.append('--filter=protect %s' % self.config._MOUNT_ROOT)
-
-        if only_new:
-            cmd_prefix.append('--update')
-
-        restored_paths = []
-
-        for path in paths:
-            tools.makeDirs(os.path.dirname(path))
-            src_path = path
-            src_delta = 0
-            src_base = sid.pathBackup(use_mode = ['ssh'])
-
-            if not src_base.endswith(os.sep):
-                src_base += os.sep
-
-            cmd = cmd_prefix[:]
-
-            if restore_to:
-                items = os.path.split(src_path)
-                aux = items[0].lstrip(os.sep)
-
-                # bugfix: restore system root ended in <src_base>//.<src_path>
-                if aux:
-                    src_base = os.path.join(src_base, aux) + '/'
-
-                src_path = '/' + items[1]
-
-                src_delta = 0 if items[0] == '/' else len(items[0])
-
-            cmd.append(
-                self.rsyncRemotePath('%s.%s' % (src_base, src_path),
-                                     use_mode=['ssh'],
-                                     quote='')
+        try:
+            restictools.restic_restore(
+                repo=repo,
+                password=password,
+                snapshot_id=snapshot_id,
+                target=target,
+                includes=list(paths),
+                extra_env=extra_env
             )
-            cmd.append('%s/' % restore_to)
+            self.restoreCallback(callback, True,
+                                 _('Restore completed successfully.'))
 
-            proc = tools.Execute(cmd,
-                                 callback=callback,
-                                 filters=(self.filterRsyncProgress,),
-                                 parent=self)
-
-            self.restoreCallback(callback, True, proc.printable_cmd)
-            proc.run()
-
-            self.restoreCallback(callback, True, ' ')
-            restored_paths.append((path, src_delta))
+        except restictools.ResticError as e:
+            logger.error(f'Restore failed: {e}', self)
+            self.restoreCallback(callback, False, f'Error: {e}')
 
         try:
             os.remove(self.config.takeSnapshotProgressFile())
@@ -578,6 +524,8 @@ class Snapshots:
         self.restoreCallback(
             callback, True, '{}:'.format(_('Restore permissions')))
         self.restorePermissionFailed = False
+
+        info = sid.info
         fileInfoDict = sid.fileInfo
 
         # cache uids/gids
@@ -591,19 +539,17 @@ class Snapshots:
             # restore dir permissions after all files are done
             all_dirs = []
 
-            for path, src_delta in restored_paths:
-                # explore items
-                snapshot_path_to = sid.pathBackup(path).rstrip('/')
-                root_snapshot_path_to = sid.pathBackup().rstrip('/')
-
+            for path in paths:
                 # use bytes instead of string from here
                 if isinstance(path, str):
                     path = path.encode()
 
-                if isinstance(restore_to, str):
-                    restore_to = restore_to.encode()
+                if isinstance(target, str):
+                    target_bytes = target.encode()
+                else:
+                    target_bytes = target
 
-                if not restore_to:
+                if target == '/':
                     path_items = path.strip(b'/').split(b'/')
                     curr_path = b'/'
 
@@ -616,30 +562,42 @@ class Snapshots:
                     if path not in all_dirs:
                         all_dirs.append(path)
 
-                if os.path.isdir(snapshot_path_to)  \
-                       and not os.path.islink(snapshot_path_to):
+                full_path = os.path.join(target_bytes, path.lstrip(b'/'))
+                if os.path.isdir(full_path) and not os.path.islink(full_path):
 
-                    head = len(root_snapshot_path_to.encode())
-
-                    for explore_path, dirs, files \
-                            in os.walk(snapshot_path_to.encode()):
-
+                    for explore_path, dirs, files in os.walk(full_path):
                         for item in dirs:
-                            item_path = os.path.join(explore_path, item)[head:]
+                            item_path = os.path.join(
+                                b'/', os.path.relpath(
+                                    os.path.join(explore_path, item),
+                                    target_bytes
+                                )
+                            )
 
                             if item_path not in all_dirs:
                                 all_dirs.append(item_path)
 
                         for item in files:
-                            item_path = os.path.join(explore_path, item)[head:]
-                            real_path = restore_to + item_path[src_delta:]
+                            item_path = os.path.join(
+                                b'/', os.path.relpath(
+                                    os.path.join(explore_path, item),
+                                    target_bytes
+                                )
+                            )
+                            real_path = os.path.join(
+                                target_bytes, item_path.lstrip(b'/'))
                             self.restorePermission(
                                 item_path, real_path, fileInfoDict, callback)
 
             all_dirs.reverse()
 
             for item_path in all_dirs:
-                real_path = restore_to + item_path[src_delta:]
+                if isinstance(target, str):
+                    target_bytes = target.encode()
+                else:
+                    target_bytes = target
+                real_path = os.path.join(
+                    target_bytes, item_path.lstrip(b'/'))
                 self.restorePermission(
                     item_path, real_path, fileInfoDict, callback)
 
@@ -650,9 +608,6 @@ class Snapshots:
                 True,
                 '{}: {}'.format(
                     _('Restore permissions'),
-                    # TODO
-                    # This string might appear in a message dialog.
-                    # Let us know the steps to reproduce that behavior.
                     _('FAILED') if self.restorePermissionFailed else _('Done')
                 )
             )
@@ -672,17 +627,8 @@ class Snapshots:
         """
         Remove snapshot ``sid``.
 
-        BUHTZ 2022-10-11: From my understanding rsync is used here to sync the
-        directory of a concrete snapshot (``sid``) against an empty temporary
-        directory. In the consequence the sid directory is empty but not
-        deleted.
-        To delete that directory simple `rm` call (via `shutil` package) is
-        used to delete the directory. No need to do this via SSH because the
-        directory is temporary mounted.
-
-        It is not clear for me why it is done that way. Why not simply "rm"
-        the directory when it is mounted instead of using rsync in a previous
-        step?! But I won't change it yet.
+        With restic, snapshot removal is done via ``restic forget``.
+        For local filesystem snapshots, the directory is simply deleted.
 
         Args:
             sid (SID):              snapshot to remove
@@ -694,44 +640,14 @@ class Snapshots:
         if isinstance(sid, RootSnapshot):
             return
 
-        # build the rsync command and it's arguments
-        rsync = tools.rsyncRemove(self.config)
-
-        # an empty temporary directory
-        # e.g. /tmp/tmp8g59onuz
-        with TemporaryDirectory() as d:
-            # the temp dir
-            rsync.append(d + os.sep)
-
-            # the real remote path of a concrete snapshot (a "sid")
-            # e.g. user@myserver:"/MyBackup/.backintime/backintime/HOST/user/ \
-            # MyProfile/20221005-000003-880"
-            rsync.append(
-                self.rsyncRemotePath(
-                    sid.path(use_mode=['ssh', 'ssh_encfs']),
-                    # No quoting because of new argument protection of rsync.
-                    quote=''
-                )
-            )
-
-            # Syncing the empty tmp directory against the sid directory
-            # will clear the sid directory.
-            rc = tools.Execute(rsync).run()
-
-            #
-            if rc != 0:
-                logger.error(
-                    f'Last rsync command failed with return code "{rc}". '
-                    'See previous WARNING message in the logs for details.')
-                return False
-
-            # Delete the sid dir. BUT here isn't the remote path used but the
-            # temporary mounted variant of it.
-            # e.g. /home/user/.local/share/backintime/mnt/4_8030/backintime/ \
-            # HOST/user/MyProfile/20221005-000003-880
+        try:
             shutil.rmtree(sid.path())
-
             return True
+        except Exception as e:
+            logger.error(
+                f'Failed to remove snapshot directory {sid.path()}: {e}',
+                self)
+            return False
 
     def warn_about_include_entries_missing_in_source(self):
         """Log a warning if include list entries are missing in the backup
@@ -1073,76 +989,6 @@ class Snapshots:
 
         return ret_error
 
-    def filterRsyncProgress(self, line):
-        """
-        Filter rsync's stdout for progress information and store them in
-        '~/.local/share/backintime/worker<N>.progress' file.
-
-        Args:
-            line (str): stdout line from rsync
-
-        Returns:
-            str:        ``line`` if it had no progress infos. ``None`` if
-                        ``line`` was a progress
-        """
-        ret = []
-        for l in line.split('\n'):
-            m = self.reRsyncProgress.match(l)
-            if m:
-                # if m.group(5).strip():
-                #     return
-                pg = progress.ProgressFile(self.config)
-                pg.setIntValue('status', pg.RSYNC)
-                pg.setStrValue('sent', m.group(1))
-                pg.setIntValue('percent', int(m.group(2)))
-                pg.setStrValue('speed', m.group(3))
-                pg.setStrValue('eta', m.group(4))
-                pg.save()
-                del pg
-            else:
-                ret.append(l)
-        return '\n'.join(ret)
-
-    def rsyncCallback(self, line, params):
-        """
-        Parse rsync's stdout, send it to takeSnapshotMessage and
-        takeSnapshotLog. Also check if there has been changes or errors in
-        current rsync.
-
-        Args:
-            line (str):     stdout line from rsync
-            params (list):  list of two bool '[error, changes]'.
-                            Uses a side effect by changing list items here
-                            to change the original list of the caller, too
-                            (lists are passed as reference in Python).
-                            If rsync reported an error ``params[0]``
-                            will be set to ``True``. If rsync reported a changed
-                            file ``params[1]`` will be set to ``True``
-        """
-        if not line:
-            return
-
-        # Warning (2023-11): Do not modify the source string.
-        # See #1559 for details.
-        self.setTakeSnapshotMessage(
-            0, _('Take snapshot') + " (rsync: %s)" % line)
-
-        # Did rsync report an error?
-        if line.endswith(')'):
-            if line.startswith('rsync:'):
-                if not line.startswith('rsync: chgrp ') and not line.startswith('rsync: chown '):
-                    # matches rsync error lines like:
-                    # rsync: [generator] link [...] failed: Invalid cross-device link (18)
-                    params[0] = True
-                    self.setTakeSnapshotMessage(1, 'Error: ' + line)
-
-        if len(line) >= 13:
-            # The prefix is created by rsync via the argument "--out-format=BACKINTIME: %i %n%L"
-            if line.startswith('BACKINTIME: '):
-                if line[12] != '.' and line[12:14] != 'cd':
-                    params[1] = True
-                    self.snapshotLog.append('[C] ' + line[12:], 2)
-
     def makeDirs(self, path):
         """
         Wrapper for :py:func:`tools.makeDirs()`. Create directories ``path``
@@ -1194,30 +1040,6 @@ class Snapshots:
                 with open(dst2_path, 'wb') as dst2:
                     dst2.write(src.read())
 
-            elif self.config.snapshotsMode() == 'ssh_encfs':
-                cmd = tools.rsyncPrefix(self.config, no_perms=False)
-                cmd.append(self.config._LOCAL_CONFIG_PATH)
-                remote_path = self.rsyncRemotePath(
-                        self.config.sshSnapshotsPath(),
-                        # no quoting because of rsync modern argument
-                        # protection (argument -s)
-                        quote=''
-                )
-                cmd.append(remote_path)
-
-                proc = tools.Execute(cmd, parent=self)
-                rc = proc.run()
-
-                # WORKAROUND
-                # tools.Execute only create warnings if 'cmd' fails.
-                # But we need a real ERROR here.
-                if rc != 0:
-                    logger.error(
-                        f'Backing up the config in "{self.config.snapshotsMode()}"'
-                        f' mode failed! The return code was {rc} and the'
-                        f' command was {cmd}. Also see the previous '
-                        'WARNING message for a more details.', parent=self)
-
     def _backup_info_file(self, sid):
         """
         Save infos about the snapshot into the 'info' file. The result is
@@ -1251,64 +1073,39 @@ class Snapshots:
         Save permissions (owner, group, read-, write- and executable)
         for all files in Snapshot ``sid`` into snapshots fileInfoDict.
 
+        With restic, permissions are preserved natively in the backup.
+        This scans the backup directory and stores permission info
+        into ``fileinfo.bz2`` for restore operations.
+
         Args:
             sid (SID):  snapshot that should be scanned
 
         Returns:
-            int: Return code of rsync.
+            int: 0 on success.
         """
         logger.info('Saving permissions', self)
         self.setTakeSnapshotMessage(0, _('Saving permissions…'))
 
         fileInfoDict = FileInfoDict()
 
-        if self.config.snapshotsMode() == 'ssh_encfs':
-            decode = encfstools.Decode(self.config, False)
-        else:
-            decode = encode.Bounce()
-
         # backup permissions of /
         # bugfix for https://github.com/bit-team/backintime/issues/708
-        self.backupPermissionsCallback(b'/', (fileInfoDict, decode))
+        self.collectPermission(fileInfoDict, b'/')
 
-        rsync = ['rsync', '--dry-run', '-s', '-r', '--out-format=%n']
-        rsync.extend(tools.rsyncSshArgs(self.config))
-        rsync.append(
-            self.rsyncRemotePath(
-                path=sid.pathBackup(
-                    use_mode=['ssh', 'ssh_encfs']
-                ),
-                quote=''
-            ) + os.sep
-        )
-
-        with TemporaryDirectory() as d:
-
-            rsync.append(d + os.sep)
-
-            proc = tools.Execute(rsync,
-                                 callback=self.backupPermissionsCallback,
-                                 user_data=(fileInfoDict, decode),
-                                 parent=self,
-                                 conv_str=False,
-                                 join_stderr=False)
-            rc = proc.run()
+        # Walk the backup directory to collect permissions
+        backup_path = sid.pathBackup()
+        if os.path.isdir(backup_path):
+            for explore_path, dirs, files in os.walk(backup_path.encode()):
+                for item in dirs + files:
+                    full = os.path.join(explore_path, item)
+                    # Convert to path relative to backup root
+                    rel = full[len(backup_path.encode()):]
+                    if rel:
+                        self.collectPermission(fileInfoDict, b'/' + rel.lstrip(b'/'))
 
         sid.fileInfo = fileInfoDict
 
-        return rc
-
-    def backupPermissionsCallback(self, line, user_data):
-        """
-        Rsync callback for :py:func:`Snapshots.backupPermissions`.
-
-        Args:
-            line(bytes):        output from rsync command
-            user_data (tuple):  two item tuple of (:py:class:`FileInfoDict`,
-                                :py:class:`encfstools.Decode`)
-        """
-        fileInfoDict, decode = user_data
-        self.collectPermission(fileInfoDict, b'/' + decode.path(line).rstrip(b'/'))
+        return 0
 
     def collectPermission(self, fileinfo, path):
         """
@@ -1331,10 +1128,10 @@ class Snapshots:
             fileinfo[path] = (mode, user, group)
 
     def takeSnapshot(self, sid, now, include_folders):
-        """This is the main backup routine.
+        """This is the main backup routine using restic.
 
-        It will take a new snapshot and store permissions of included files
-        and folders into ``fileinfo.bz2``.
+        It will take a new snapshot using ``restic backup`` and store
+        permissions of included files and folders into ``fileinfo.bz2``.
 
         Args:
             sid (SID): snapshot ID which the new snapshot should get
@@ -1353,25 +1150,14 @@ class Snapshots:
         self.setTakeSnapshotMessage(0, '...')
 
         new_snapshot = NewSnapshot(self.config)
-        encode = self.config.ENCODE
-
-        # "return" values set during async rsync execution (as user data "by ref")
-        params = [False, False]  # [error, changes]
-
-        # TODO
-        # docstring of return value for this function swaps the meaning of the
-        # elements, this is confusing (``ret_val``, ``ret_error``) and
-        # error-prone.  Use a mutable data structure with named elements
-        # instead, e.g. a DataClass
+        has_error = False
+        has_changes = False
 
         if new_snapshot.exists() and new_snapshot.saveToContinue:
             logger.warning(
                 f'Found incomplete backup "{new_snapshot.displayID}" '
                 'that can be continued.', self)
 
-            # TODO
-            # Not sure but {snapshot_id} is always "new_snapshot", isn't it?
-            # Might make no sense to put that name in that string.
             self.setTakeSnapshotMessage(
                 0,
                 _('Found incomplete backup {snapshot_id} '
@@ -1390,7 +1176,7 @@ class Snapshots:
                     pass
 
             # search previous log for changes and set params
-            params[1] = new_snapshot.hasChanges
+            has_changes = new_snapshot.hasChanges
 
         elif new_snapshot.exists() and not new_snapshot.saveToContinue:
             logger.info(f'Removing incomplete backup {new_snapshot.displayID} '
@@ -1419,82 +1205,73 @@ class Snapshots:
         if not new_snapshot.saveToContinue and not new_snapshot.makeDirs():
             return [False, True]
 
-        prev_sid = None
-        snapshots = listSnapshots(self.config)
+        # Build restic backup parameters
+        repo = self.config.buildResticRepoUri()
+        password = self.config.resticPassword()
+        extra_env = self.config.buildResticExtraEnv()
 
-        if snapshots:
-            prev_sid = snapshots[0]
+        # Extract paths from include_folders tuples
+        include_paths = [item[0] for item in include_folders]
 
-        # rsync prefix & suffix
-        rsync_prefix = tools.rsyncPrefix(self.config, no_perms=False)
+        # Build exclude list
+        excludes = list(self.config.exclude())
+        # Always exclude the snapshots path and internal directories
+        excludes.extend([
+            self.config.snapshotsPath(),
+            self.config._LOCAL_DATA_FOLDER,
+            self.config._MOUNT_ROOT
+        ])
 
-        if self.config.excludeBySizeEnabled():
-            rsync_prefix.append('--max-size=%sM' % self.config.excludeBySize())
+        # Build tags for the snapshot
+        tags = [sid.sid, self.config.host(), self.config.profileName()]
 
-        rsync_suffix = self.rsyncSuffix(include_folders)
+        # Check bandwidth limit
+        limit_upload = 0
+        limit_download = 0
+        if self.config.bwlimitEnabled():
+            limit_upload = self.config.bwlimit()
+            limit_download = self.config.bwlimit()
 
-        # When there is no snapshots it takes the last snapshot from the other folders
-        # It should delete the excluded folders then
-        rsync_prefix.extend(('--delete', '--delete-excluded'))
-        rsync_prefix.append('-v')
-
-        # Use a fixed logging format for the rsync "changed files" list to
-        # make it parsable e.g. in rsyncCallback()
-        # %i = itemized list (11 characters) of what is being updated
-        # (see "--itemize-changes" in "man rsync")
-        # %n = the filename (short form; trailing "/" on dir)
-        # %L = the string " -> SYMLINK", " => HARDLINK", or ""
-        # (where SYMLINK or HARDLINK is a filename)
-        # (see log format section in "man rsyncd.conf")
-        rsync_prefix.extend(('-i', '--out-format=BACKINTIME: %i %n%L'))
-
-        if prev_sid:
-            link_dest = encode.path(os.path.join(prev_sid.sid, 'backup'))
-            link_dest = os.path.join(os.pardir, os.pardir, link_dest)
-            rsync_prefix.append('--link-dest=%s' % link_dest)
-
-        # sync changed folders
-        # logger.info("Call rsync to create a backup", self)
+        # Run restic backup
         new_snapshot.saveToContinue = True
-        cmd = rsync_prefix + rsync_suffix
-
-        # No quoting (quote='') because of new argument protection of rsync.
-        cmd.append(self.rsyncRemotePath(
-            new_snapshot.pathBackup(use_mode=['ssh', 'ssh_encfs']),
-            quote=''))
-
         self.setTakeSnapshotMessage(0, _('Creating backup'))
 
-        # run rsync
-        proc = tools.Execute(cmd,
-                             # TODO
-                             # interprets the user_data in params as: list of
-                             # two bool [error, changes] but params is reused
-                             # as return value of this function with [changes,
-                             # error]. Use a separate variable to avoid
-                             # confusion!
-                             callback=self.rsyncCallback,
-                             user_data=params,
-                             filters=(self.filterRsyncProgress,),
-                             parent=self)
+        try:
+            summary = restictools.restic_backup(
+                repo=repo,
+                password=password,
+                includes=include_paths,
+                excludes=excludes,
+                tags=tags,
+                one_file_system=self.config.oneFileSystem(),
+                extra_env=extra_env,
+                nice=self.config.niceOnCron(),
+                ionice=self.config.ioniceOnCron(),
+                limit_upload=limit_upload,
+                limit_download=limit_download,
+            )
 
-        # TODO
-        # introduce centralized log msg builder to avoid spread severity level
-        # indicators like "[I]" here?
-        self.snapshotLog.append('[I] ' + proc.printable_cmd, 3)
+            self.snapshotLog.append(
+                '[I] restic backup completed successfully', 3)
 
-        # TODO
-        # Process return value with rsync exit code to recognize errors that
-        # cannot be recognized by parsing the rsync output currently
+            # Check if there were actual changes
+            files_new = summary.get('files_new', 0)
+            files_changed = summary.get('files_changed', 0)
+            files_unmodified = summary.get('files_unmodified', 0)
 
-        rsync_exit_code = proc.run()
-            # Fix for #1491 and #489
-            # Note that the return value (containing the exit code) of the
-            # rsync child process is not the only way to detect errors (and
-            # sometimes not reliably delivers <> 0 in case of an error):
-            # Errors are also indicated via the pass-by-ref argument
-            # user_data="params" list (updated by the callback function that
-            # parses the rsync output for error message patterns).
+            if files_new > 0 or files_changed > 0:
+                has_changes = True
+                self.snapshotLog.append(
+                    f'[I] Files: {files_new} new, {files_changed} changed, '
+                    f'{files_unmodified} unmodified', 3)
+
+            self.setTakeSnapshotMessage(0, _('Backup completed'))
+
+        except restictools.ResticError as e:
+            has_error = True
+            logger.error(f'Restic backup failed: {e}', self)
+            self.setTakeSnapshotMessage(1, f'Error: {e}')
+            self.snapshotLog.append(f'[E] Restic backup failed: {e}', 3)
 
         # cleanup
         try:
@@ -1506,58 +1283,17 @@ class Snapshots:
                          self)
 
         # handle errors
-        # TODO
-        # Fix inconsistent usage: Collects return value, but errors are also
-        # checked via params[0]
-        has_errors = False
-
-        # dict of exit codes (as keys) that are treated as INFO only by BiT
-        # (not as ERROR). The values are message strings for the snapshot log.
-        rsync_non_error_exit_codes = {
-            0: _("Success"),
-            # ignored as fix for #1587 (until we introduce a new snapshot
-            # result category "(with warnings)")
-            23: _("Partial transfer due to error"),
-            24: _("Partial transfer due to vanished source files "
-                  "(see 'man rsync')")
-        }
-
-        rsync_exit_code_msg = _("'rsync' ended with exit code {exit_code}") \
-            .format(exit_code=rsync_exit_code)
-
-        if rsync_exit_code in rsync_non_error_exit_codes:
-            self.setTakeSnapshotMessage(
-                0, rsync_exit_code_msg + ": "
-                   + rsync_non_error_exit_codes[rsync_exit_code])
-
-        elif rsync_exit_code > 0:  # an rsync error
-            # HACK to fix #489 (params[0] and has_errors should be merged)
-            params[0] = True
-            self.setTakeSnapshotMessage(
-                1, rsync_exit_code_msg + ": "
-                   + _("See 'man rsync' for more details"))
-
-        elif rsync_exit_code < 0:  # an rsync error caused by a signal
-            # HACK to fix #489 (params[0] and has_errors should be merged)
-            params[0] = True
-            self.setTakeSnapshotMessage(
-                1, rsync_exit_code_msg + ": "
-                   + _("Negative rsync exit codes are signal numbers, see "
-                       "'kill -l' and 'man kill'"))
-
-        # params[0] -> error?
-        if params[0]:
+        if has_error:
 
             if not self.config.continueOnErrors():
                 self.remove(new_snapshot)
 
                 return [False, True]
 
-            has_errors = True
             new_snapshot.failed = True
 
-        # params[1] -> changes?
-        if not params[1] and not self.config.takeSnapshotRegardlessOfChanges():
+        # no changes?
+        if not has_changes and not self.config.takeSnapshotRegardlessOfChanges():
 
             self.remove(new_snapshot)
 
@@ -1565,16 +1301,18 @@ class Snapshots:
             self.snapshotLog.append(
                 '[I] ' + _('Nothing changed, no new backup necessary'), 3)
 
+            prev_sid = None
+            snapshots = listSnapshots(self.config)
+            if snapshots:
+                prev_sid = snapshots[0]
+
             if prev_sid:
                 prev_sid.setLastChecked()
 
-            if not has_errors:
+            if not has_error:
                 tools.writeTimeStamp(self.config.anacronSpoolFile())
 
-            # Part of fix for #1491:
-            # Returns "has_errors" instead of False now to signal rsync errors
-            # (which may have prevented processing any changes)
-            return [False, has_errors]
+            return [False, has_error]
 
         self.backupConfig(new_snapshot)
         self.backupPermissions(new_snapshot)
@@ -1585,7 +1323,6 @@ class Snapshots:
             with open(self.snapshotLog.logFileName, 'rb') as logfile:
                 new_snapshot.setLog(logfile.read())
 
-
         except Exception as e:
             logger.debug('Failed to write takeSnapshot log %s into '
                          'compressed file %s: %s' % (
@@ -1593,9 +1330,6 @@ class Snapshots:
                              new_snapshot.path(SID.LOG),
                              str(e)),
                          self)
-
-            # TODO How is this error handled? Currently it looks like it is
-            # ignored (just logged)!
 
         new_snapshot.saveToContinue = False
 
@@ -1617,13 +1351,13 @@ class Snapshots:
 
         self._backup_info_file(sid)
 
-        if not has_errors:
+        if not has_error:
             tools.writeTimeStamp(self.config.anacronSpoolFile())
 
         # create last_snapshot symlink
         self.createLastSnapshotSymlink(sid)
 
-        return [True, has_errors]
+        return [True, has_error]
 
     def smartRemoveKeepAll(self,
                            snapshots: list[SID],
@@ -1850,10 +1584,7 @@ class Snapshots:
 
     def smartRemove(self, del_snapshots, log = None):
         """
-        Remove multiple snapshots either with
-        :py:func:`Snapshots.remove` or in background on the remote host
-        if mode is `ssh` or `ssh_encfs` and smart-remove in background is
-        activated.
+        Remove multiple snapshots using :py:func:`Snapshots.remove`.
 
         Args:
             del_snapshots (list):   list of :py:class:`SID` that should be removed
@@ -1865,86 +1596,12 @@ class Snapshots:
         if not log:
             log = lambda x: self.setTakeSnapshotMessage(0, x)
 
-        if self.config.snapshotsMode() in ['ssh', 'ssh_encfs'] and self.config.smartRemoveRunRemoteInBackground():
-            logger.info('[smart remove] remove snapshots in background: %s'
-                        % del_snapshots, self)
+        logger.info("[smart remove] remove snapshots: %s"
+                    % del_snapshots, self)
 
-            lckFile = os.path.normpath(
-                os.path.join(
-                    del_snapshots[0].path(use_mode=['ssh', 'ssh_encfs']),
-                    os.pardir,
-                    'smartremove.lck'
-                )
-            )
-
-            maxLength = self.config.sshMaxArgLength()
-
-            if not maxLength:
-                import ssh_max_arg
-                user_host = '%s@%s' % (self.config.sshUser(),
-                                       self.config.sshHost())
-                maxLength = ssh_max_arg.probe_max_ssh_command_size(self.config)
-                self.config.setSshMaxArgLength(maxLength)
-                self.config.save()
-                ssh_max_arg.report_result(user_host, maxLength)
-
-            additionalChars = len(self.config.sshPrefixCmd(cmd_type = str))
-
-            head = 'screen -d -m bash -c "('
-            # create temp dir used for delete files with rsync
-            head += 'TMP=\\$(mktemp -d); '
-            # make sure $TMP dir was created
-            head += 'test -z \\\"\\$TMP\\\" && exit 1; '
-            # make sure $TMP is empty
-            head += 'test -n \\\"\\$(ls \\$TMP)\\\" && exit 1; '
-            if logger.DEBUG:
-                head += 'logger -t \\\"backintime smart-remove [$BASHPID]\\\" \\\"start\\\"; '
-            head += 'flock -x 9; '
-            if logger.DEBUG:
-                head += 'logger -t \\\"backintime smart-remove [$BASHPID]\\\" \\\"got exclusive flock\\\"; '
-
-            tail = 'rmdir \\$TMP) 9>\\\"%s\\\""' % lckFile
-
-            cmds = []
-
-            for sid in del_snapshots:
-                remote = self.rsyncRemotePath(sid.path(use_mode = ['ssh', 'ssh_encfs']), use_mode = [], quote = '\\\"')
-                rsync = ' '.join(tools.rsyncRemove(self.config, run_local = False))
-                rsync += ' \\\"\\$TMP/\\\" {}; '.format(remote)
-
-                s = 'test -e \\\"%s\\\" && (' %sid.path(use_mode = ['ssh', 'ssh_encfs'])
-
-                if logger.DEBUG:
-                    s += 'logger -t \\\"backintime smart-remove [$BASHPID]\\\" '
-                    s += '\\\"snapshot %s still exist\\\"; ' %sid
-                    s += 'sleep 1; ' #add one second delay because otherwise you might not see serialized process with small snapshots
-
-                s += rsync
-                s += 'rmdir \\\"%s\\\"; ' %sid.path(use_mode = ['ssh', 'ssh_encfs'])
-
-                if logger.DEBUG:
-                    s += 'logger -t \\\"backintime smart-remove [$BASHPID]\\\" '
-                    s += '\\\"snapshot %s remove done\\\"' %sid
-
-                s += '); '
-                cmds.append(s)
-
-            for cmd in tools.splitCommands(cmds,
-                                           head = head,
-                                           tail = tail,
-                                           maxLength = maxLength - additionalChars):
-                tools.Execute(self.config.sshCommand([cmd,],
-                                                     quote = False,
-                                                     nice = False,
-                                                     ionice = False)).run()
-
-        else:
-            logger.info("[smart remove] remove snapshots: %s"
-                        % del_snapshots, self)
-
-            for i, sid in enumerate(del_snapshots, 1):
-                log('Smart removal' + ' %s/%s' %(i, len(del_snapshots)))
-                self.remove(sid)
+        for i, sid in enumerate(del_snapshots, 1):
+            log('Smart removal' + ' %s/%s' %(i, len(del_snapshots)))
+            self.remove(sid)
 
     def get_free_space_at_destination(self) -> StorageSize | None:
         """Free space at destination.
@@ -1952,18 +1609,8 @@ class Snapshots:
         Return:
             A StorageSize object holding the value or `None` in case of errors.
         """
-        # Prepare getting free space value
-        if self.config.snapshotsMode() in ('ssh', 'ssh_encfs'):
-            # ...on remote host
-            dest_path = self.config.sshSnapshotsFullPath()
-            ssh_cmd = self.config.sshCommand(
-                [], nice=False, ionice=False)
-        else:
-            # ...on local machine
-            dest_path = self.config.snapshotsFullPath()
-            ssh_cmd = None
-
-        return tools.free_space(dest_path, ssh_cmd)
+        dest_path = self.config.snapshotsFullPath()
+        return tools.free_space(dest_path, None)
 
     def freeSpace(self, now):
         """Remove old backups based on several rules (if enabled).
@@ -2222,259 +1869,6 @@ class Snapshots:
                 snapshotsFiltered.append(sid)
 
         return snapshotsFiltered
-
-    def rsyncRemotePath(self, path, use_mode = ['ssh', 'ssh_encfs'], quote = '"'):
-        """
-        Format the destination string for rsync depending on which profile is
-        used.
-
-        Args:
-            path (str):         destination path
-            use_mode (list):    list of modes in which the result should
-                                change to ``user@host:path`` instead of
-                                just ``path``
-            quote (str):        use this to quote the path
-
-        Returns:
-            str:                quoted ``path`` like '"/foo"'
-                                or if the current mode is using ssh and
-                                current mode is in ``use_mode`` a combination
-                                of user, host and ``path``
-                                like ''user@host:"/foo"''
-        """
-        mode = self.config.snapshotsMode()
-
-        if mode in ['ssh', 'ssh_encfs'] and mode in use_mode:
-            user = self.config.sshUser()
-            host = tools.escapeIPv6Address(self.config.sshHost())
-
-            return '%(u)s@%(h)s:%(q)s%(p)s%(q)s' % {'u': user,
-                                                    'h': host,
-                                                    'q': quote,
-                                                    'p': path}
-        else:
-            return path
-
-    def deletePath(self, sid, path):
-        """
-        Delete ``path`` and all files and folder inside in snapshot ``sid``.
-
-        Args:
-            sid (SID):  snapshot ID in which ``path`` should be deleted
-            path (str): path to delete
-        """
-        def errorHandler(fn, path, excinfo):
-            """
-            Error handler for :py:func:`deletePath`. This will fix permissions
-            and try again to remove the file.
-
-            Args:
-                fn (method):    callable which failed before
-                path (str):     file to delete
-                excinfo:        NotImplemented
-            """
-            dirname = os.path.dirname(path)
-            st = os.stat(dirname)
-            os.chmod(dirname, st.st_mode | stat.S_IWUSR)
-            st = os.stat(path)
-            os.chmod(path, st.st_mode | stat.S_IWUSR)
-            fn(path)
-
-        full_path = sid.pathBackup(path)
-        dirname = os.path.dirname(full_path)
-        dir_st = os.stat(dirname)
-        os.chmod(dirname, dir_st.st_mode | stat.S_IWUSR)
-
-        if os.path.isdir(full_path) and not os.path.islink(full_path):
-            shutil.rmtree(full_path, onerror = errorHandler)
-
-        else:
-            st = os.stat(full_path)
-            os.chmod(full_path, st.st_mode | stat.S_IWUSR)
-            os.remove(full_path)
-
-        os.chmod(dirname, dir_st.st_mode)
-
-    def createLastSnapshotSymlink(self, sid: SID) -> bool:
-        """Create symlink 'last_snapshot' to snapshot ``sid``.
-
-        Args:
-            sid: Snapshot that should be linked.
-
-        Returns:
-            bool: ``True`` if successful.
-        """
-        if sid is None:
-            return
-
-        symlink = self.config.lastSnapshotSymlink()
-
-        try:
-            if os.path.islink(symlink):
-                if os.path.basename(os.path.realpath(symlink)) == sid.sid:
-                    return True
-
-                os.remove(symlink)
-
-            if os.path.exists(symlink):
-                logger.error(f'Could not remove symlink {symlink}', self)
-                return False
-
-            logger.debug(f'Create symlink {symlink} => {sid}', self)
-            os.symlink(sid.sid, symlink)
-
-            return True
-
-        except Exception as exc:
-            logger.error(f'Failed to create symlink {symlink}: {exc}', self)
-
-            return False
-
-    def rsyncSuffix(self, includeFolders=None, excludeFolders=None):
-        """Create suffixes for rsync.
-
-        Args:
-            includeFolders (list): Folders to include. list of tuples (item,
-                int). Where ``int`` is ``0`` if ``item`` is a folder or ``1``
-                if ``item`` is a file.
-            excludeFolders (list):  List of folders to exclude.
-
-        Returns:
-            (list): Rsync include and exclude options.
-        """
-        # Create exclude patterns string
-        rsync_exclude = self.rsyncExclude(excludeFolders)
-
-        # Create include patterns list
-        rsync_include, rsync_include2 = self.rsyncInclude(includeFolders)
-
-        encode = self.config.ENCODE
-
-        ret = ['--chmod=Du+wx']
-        ret.extend([
-            '--exclude=' + i for i in (
-                encode.exclude(self.config.snapshotsPath()),
-                encode.exclude(self.config._LOCAL_DATA_FOLDER),
-                encode.exclude(self.config._MOUNT_ROOT)
-            )
-        ])
-        # TODO: fix bug #561:
-        # after rsync_exclude we need to explicitly include files inside
-        # excluded folders, recursive exclude folder-content again and finally
-        # add the rest from rsync_include2
-        ret.extend(rsync_include)
-        ret.extend(rsync_exclude)
-        ret.extend(rsync_include2)
-        ret.append('--exclude=*')
-        ret.append(encode.chroot)
-
-        return ret
-
-    def rsyncExclude(self, excludeFolders=None):
-        """Format exclude list for rsync.
-
-        See `rsyncInclude()` for more details.
-
-        Args:
-            excludeFolders (list): List of folders to exclude.
-
-        Returns:
-            (list): Rsync exclude options.
-        """
-        items = []
-        encode = self.config.ENCODE
-
-        if excludeFolders is None:
-            excludeFolders = self.config.exclude()
-
-        for exclude in excludeFolders:
-            exclude = encode.exclude(exclude)
-
-            if exclude is None:
-                continue
-
-            items.append(f'--exclude={exclude}')
-
-        return items
-
-    def rsyncInclude(self, includeFolders=None):
-        """Format include list for rsync.
-
-        Returns two lists of include strings. First string need to come
-        before exclude, second after exclude.
-
-        Args:
-            includeFolders (list): Folders to include. List of tuples
-                (item, int) where ``int`` is ``0`` if ``item`` is a folder
-                or ``1`` if ``item`` is a file.
-
-        Returns:
-            (tuple): Two item tuple with two lists.
-        """
-        # Include items..
-        # ...before the exclude items and...
-        before = []
-        # ...after the exclude items
-        after = []
-
-        # Except for EncFS profiles this does nothing
-        encode = self.config.ENCODE
-
-        if includeFolders is None:
-            includeFolders = self.config.include()
-
-        for include_folder in includeFolders:
-            folder = include_folder[0]
-
-            # If / is selected as included folder it should be changed to ""
-            if folder == "/":
-                # folder = ""  # because an extra / is added below.
-                               # Patch thanks to Martin Hoefling
-
-                after.append('--include=/')
-                after.append('--include=/**')
-                continue
-
-            folder = encode.include(folder)
-
-            # Folder(0) or file(1)
-            if include_folder[1] == 0:
-                after.append('--include={}/**'.format(folder))
-            else:
-                after.append('--include={}'.format(folder))
-                folder = os.path.split(folder)[0]
-
-            while True:
-                if len(folder) <= 1:
-                    break
-                before.append('--include={}/'.format(folder))
-                folder = os.path.split(folder)[0]
-
-        # buhtz 2024-07-17:
-        # It is not clear to me why here are two lists generated. But I tested
-        # with this include entries:
-        #     folder: /home/user/Downloads
-        #     file: /home/user/mbox
-        #     file: /home/user/notizen
-        #     file: /home/user/mylock
-        #     folder: /home/user/foo
-        # And this is the result:
-        #
-        #    items1=OrderedSet([
-        #        '--include=/home/user/Downloads/',
-        #        '--include=/home/user/',
-        #        '--include=/home/',
-        #        '--include=/home/user/foo/'
-        #    ])
-        #    items2=OrderedSet([
-        #        '--include=/home/user/Downloads/**',
-        #        '--include=/home/user/mbox',
-        #        '--include=/home/user/notizen',
-        #        '--include=/home/user/mylock',
-        #        '--include=/home/user/foo/**'
-        #    ])
-
-        return (before, after)
 
 
 class FileInfoDict(dict):
