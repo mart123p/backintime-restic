@@ -11,7 +11,8 @@ import configfile
 
 class ProgressFile(configfile.ConfigFile):
 
-    RSYNC = 50
+    RSYNC = 50  # Legacy constant kept for backward compatibility
+    RESTIC = 60  # Progress file constant for restic
 
     def __init__(self, cfg, filename=None):
         super(ProgressFile, self).__init__()

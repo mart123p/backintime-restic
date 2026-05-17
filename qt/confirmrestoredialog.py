@@ -92,30 +92,14 @@ class ConfirmRestoreDialog(QDialog):
     def _create_checkbox_only_new(self) -> WrappedCheckBox:
         label = _(
             'Only restore elements which do not exist or are newer than those '
-            'in destination. Using "{rsync_example}" option.').format(
-                rsync_example='<code>rsync --update</code>')
+            'in destination.')
 
         tooltip = [
-            "From 'man rsync':",
+            _("This option skips files which already exist on the destination "
+              "and have a modification time that is newer than the source."),
             "",
-            "This forces rsync to skip any files which exist on the "
-            "destination and have a modified time that is newer than the "
-            "source file. (If an existing destination file has a "
-            "modification time equal to the source file’s, it will be "
-            "updated if the sizes are different.)",
-            "",
-            "Note that this does not affect the copying of dirs, symlinks, "
-            "or other special files. Also, a difference of file format "
-            "between the sender and receiver is always considered to be "
-            "important enough for an update, no matter what date is on the "
-            "objects. In other words, if the source has a directory where "
-            "the destination has a file, the transfer would occur regardless "
-            "of the timestamps.",
-            "",
-            "This option is a transfer rule, not an exclude, so it doesn’t "
-            "affect the data that goes into the file-lists, and thus it "
-            "doesn’t affect deletions. It just limits the files that the "
-            "receiver requests to be transferred."
+            _("Note that this does not affect the copying of directories, "
+              "symlinks, or other special files.")
         ]
 
         return WrappedCheckBox(label, tooltip)

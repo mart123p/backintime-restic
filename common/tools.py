@@ -1210,208 +1210,40 @@ def onBattery():
     return False
 
 
-def rsyncCaps() -> list[str]:
-    """
-    Get capabilities of the installed rsync binary. This can be different from
-    version to version and also on build arguments used when building rsync.
-
-    Dev note (buhtz, 2025-07): BIT uses --xattrs and --acls only. Both are
-    introduced with rsync 3.0.0 in year 2008. Might be worth to keep this
-    check.
+def resticBinary() -> str:
+    """Return the path to the restic binary.
 
     Returns:
-        List of str with rsyncs capabilities.
+        str: Full path to the restic binary, or empty string if not found.
     """
-    proc = subprocess.Popen(['rsync', '--version'],
-                            stdout=subprocess.PIPE,
-                            universal_newlines=True)
-    data = proc.communicate()[0]
-
-    caps = []
-
-    # rsync >= 3.1 does provide --info=progress2
-    matchers = (
-        r'rsync\s*version\s*(\d\.\d)',
-        r'rsync\s*version\s*v(\d\.\d.\d)'
-    )
-
-    for matcher in matchers:
-        m = re.match(matcher, data)
-
-        if m and Version(m.group(1)) >= Version('3.1'):
-            caps.append('progress2')
-            break
-
-    # all other capabilities are separated by ',' between
-    # 'Capabilities:' and '\n\n'
-    m = re.match(r'.*Capabilities:(.+)\n\n.*', data, re.DOTALL)
-    if not m:
-        return caps
-
-    for line in m.group(1).split('\n'):
-        caps.extend(
-            [i.strip(' \n') for i in line.split(',') if i.strip(' \n')])
-
-    return caps
+    path = shutil.which('restic')
+    return path if path else ''
 
 
-def rsyncPrefix(config,
-                no_perms: bool = True,
-                use_mode: list[str] = ['ssh', 'ssh_encfs'],
-                progress: bool = True) -> list[str]:
-    """
-    Get rsync command and all args for creating a new snapshot. Args are
-    based on current profile in ``config``.
-
-    Args:
-        config: current config
-        no_perms: Don't sync permissions (--no-p --no-g --no-o). If ``True``.
-            :py:func:`config.Config.preserveAcl` == ``True`` or
-            :py:func:`config.Config.preserveXattr` == ``True``
-            will overwrite this to ``False``
-        use_mode: If current mode is in this list add additional args
-            for that mode.
-        progress: Add '--info=progress2' to show progress.
+def resticVersion() -> str:
+    """Return the installed restic version string.
 
     Returns:
-        Rsync command with all args but without --include, --exclude,
-        source and destination.
+        str: Version string (e.g. ``'0.16.4'``), or empty string if
+             restic is not installed.
     """
-    caps = rsyncCaps()
-    cmd = []
-
-    if config.nocacheOnLocal():
-        cmd.append('nocache')
-
-    cmd.append('rsync')
-
-    cmd.extend((
-        # recurse into directories
-        '--recursive',
-        # preserve modification times
-        '--times',
-        # preserve device files (super-user only)
-        '--devices',
-        # preserve special files
-        '--specials',
-        # preserve hard links
-        '--hard-links',
-        # numbers in a human-readable format
-        '--human-readable',
-        # use "new" argument protection
-        '-s'
-    ))
-
-    if config.useChecksum() or config.forceUseChecksum:
-        cmd.append('--checksum')
-
-    if config.copyUnsafeLinks():
-        cmd.append('--copy-unsafe-links')
-
-    if config.copyLinks():
-        cmd.append('--copy-links')
-    else:
-        cmd.append('--links')
-
-    if config.oneFileSystem():
-        cmd.append('--one-file-system')
-
-    if config.preserveAcl() and "ACLs" in caps:
-        cmd.append('--acls')  # preserve ACLs (implies --perms)
-        no_perms = False
-
-    if config.preserveXattr() and "xattrs" in caps:
-        cmd.append('--xattrs')  # preserve extended attributes
-        no_perms = False
-
-    if no_perms:
-        cmd.extend(('--no-perms', '--no-group', '--no-owner'))
-
-    else:
-        cmd.extend(('--perms',          # preserve permissions
-                    '--executability',  # preserve executability
-                    '--group',         # preserve group
-                    '--owner'))         # preserve owner (super-user only)
-
-    if progress and 'progress2' in caps:
-        cmd.extend(('--info=progress2',
-                    '--no-inc-recursive'))
-
-    if config.bwlimitEnabled():
-        cmd.append('--bwlimit=%d' % config.bwlimit())
-
-    if config.rsyncOptionsEnabled():
-        cmd.extend(shlex.split(config.rsyncOptions()))
-
-    cmd.extend(rsyncSshArgs(config, use_mode))
-    return cmd
+    binary = resticBinary()
+    if not binary:
+        return ''
+    try:
+        proc = subprocess.run(
+            [binary, 'version'],
+            capture_output=True, text=True, check=True
+        )
+        parts = proc.stdout.strip().split()
+        if len(parts) >= 2:
+            return parts[1]
+        return proc.stdout.strip()
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return ''
 
 
-def rsyncSshArgs(config, use_mode=['ssh', 'ssh_encfs']):
-    """
-    Get SSH args for rsync based on current profile in ``config``.
 
-    Args:
-        config (config.Config): Current config instance.
-        use_mode (list):        If the profiles current mode is in this list
-                                add additional args.
-
-    Returns:
-        list:                   List of rsync args related to SSH.
-    """
-
-    cmd = []
-
-    mode = config.snapshotsMode()
-
-    if mode in ['ssh', 'ssh_encfs'] and mode in use_mode:
-        ssh = config.sshCommand(user_host=False,
-                                ionice=False,
-                                nice=False)
-
-        cmd.append('--rsh=' + ' '.join(ssh))
-
-        if config.niceOnRemote() \
-           or config.ioniceOnRemote() \
-           or config.nocacheOnRemote():
-
-            rsync_path = '--rsync-path='
-
-            if config.niceOnRemote():
-                rsync_path += 'nice -n 19 '
-
-            if config.ioniceOnRemote():
-                rsync_path += 'ionice -c2 -n7 '
-
-            if config.nocacheOnRemote():
-                rsync_path += 'nocache '
-
-            rsync_path += 'rsync'
-
-            cmd.append(rsync_path)
-
-    return cmd
-
-
-def rsyncRemove(config, run_local=True):
-    """
-    Get rsync command and all args for removing snapshots with rsync.
-
-    Args:
-        config (config.Config): current config
-        run_local (bool):       if True and current mode is ``ssh``
-                                or ``ssh_encfs`` this will add SSH options
-
-    Returns:
-        list:                   rsync command with all args
-    """
-    cmd = ['rsync', '-a', '--delete', '-s']
-    if run_local:
-        cmd.extend(rsyncSshArgs(config))
-    return cmd
-
-
-# TODO: check if we really need this
 def tempFailureRetry(func, *args, **kwargs):
     while True:
         try:
@@ -2319,7 +2151,7 @@ class Execute:
         try:
             # register signals for pause, resume and kill
             # Forward these signals (sent to the "backintime" process
-            # normally) to the child process ("rsync" normally).
+            # normally) to the child process.
             # Note: SIGSTOP (unblockable stop) cannot be forwarded because
             # it cannot be caught in a signal handler!
             signal.signal(signal.SIGTSTP, self.pause)
@@ -2339,13 +2171,13 @@ class Execute:
         self.currentProc = subprocess.Popen(
             self.cmd, stdout=subprocess.PIPE, stderr=stderr)
 
-        # # TEST code for developers to simulate a killed rsync process
-        # if self.printable_cmd.startswith("rsync --recursive"):
+        # # TEST code for developers to simulate a killed child process
+        # if self.printable_cmd.startswith("restic backup"):
         #     # signal 15 (SIGTERM) like "killall" and "kill" do by default
         #     self.currentProc.terminate()
         #     # self.currentProc.send_signal(signal.SIGHUP)  # signal 1
         #     # self.currentProc.kill()  # signal 9
-        #     logger.error("rsync killed for testing purposes during "
+        #     logger.error("child process killed for testing purposes during "
         #                  "development")
 
         if self.callback:
@@ -2378,7 +2210,7 @@ class Execute:
         #      to directly process each stdout line by calling the callback...
 
         ret_val = self.currentProc.returncode
-        # TODO ret_val is sometimes 0 instead of e.g. 23 for rsync. Why?
+        # TODO ret_val is sometimes 0 instead of non-zero exit code. Why?
 
         try:
             # reset signal handler to their default

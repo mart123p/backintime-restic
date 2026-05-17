@@ -150,12 +150,8 @@ def collect_diagnostics():
     # === EXTERN TOOL ===
     result['external-programs'] = {}
 
-    # RSYNC environment variables
-    for var in ['RSYNC_OLD_ARGS', 'RSYNC_PROTECT_ARGS']:
-        result['external-programs'][var] = os.environ.get(
-            var, '(not set)')
-
-    result['external-programs']['rsync'] = _get_rsync_info()
+    # restic
+    result['external-programs']['restic'] = _get_restic_info()
 
     # ssh
     result['external-programs']['ssh'] = _get_extern_versions(['ssh', '-V'])
@@ -300,54 +296,20 @@ def _get_extern_versions(cmd,
     return result.strip()  # as string
 
 
-def _get_rsync_info():
-    """Collect infos about rsync.
+def _get_restic_info():
+    """Collect info about restic.
 
     Returns:
-        dict: Collected info
+        str or dict: Collected info.
     """
-    # rsync
-    # rsync >= 3.2.7: -VV return a json
-    # rsync <= 3.2.6 and > (somewhere near) 3.1.3: -VV return the same as -V
-    # rsync <= (somewhere near) 3.1.3: -VV doesn't exists
-    # rsync == 3.1.3 (Ubuntu 20 LTS) doesn't even know '-V'
-
-    # This works when rsync understands -VV and returns json or human readable
-    info = _get_extern_versions(
-        ['rsync', '-VV'],
-        r'rsync  version (.*)  protocol version',
-        try_json=True,
-        error_pattern=r'unknown option'
-    )
-
-    # When -VV was unknown use -V and parse the human readable output
-    if not info:
-        # try the old way
-        info = _get_extern_versions(
-            ['rsync', '--version'],
-            r'rsync  version (.*)  protocol version'
-        )
-
-    elif isinstance(info, dict):
-        # Rsync (>= 3.2.7) provide its information in JSON format.
-        # Remove some irrelevant information.
-        for key in ['program', 'copyright', 'url', 'license', 'caveat']:
-            try:
-                del info[key]
-            except KeyError:
-                pass
-
-        # Reduce use of vertical space with transforming lists and dicts into
-        # strings.
-        for key in ['daemon_auth_list', 'compress_list', 'checksum_list',
-                    'optimizations', 'capabilities']:
-            if isinstance(info[key], list):
-                info[key] = ', '.join(info[key])
-            elif isinstance(info[key], dict):
-                info[key] = '; '.join(
-                    f'{k}: {v}' for k, v in info[key].items())
-
-    return info
+    try:
+        import tools as _tools
+        version = _tools.resticVersion()
+        if version:
+            return {'version': version}
+        return 'not installed'
+    except Exception:
+        return 'not installed'
 
 
 def _get_os_release():

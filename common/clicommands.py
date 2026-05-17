@@ -22,7 +22,6 @@ import tools
 tools.initiate_translation(None)
 import logger
 import snapshots
-import sshtools
 import password
 import encfstools
 import cli
@@ -168,14 +167,10 @@ def benchmark_cipher(args: argparse.Namespace):
 
     cfg = _get_config(args)
 
-    if cfg.snapshotsMode() in ('ssh', 'ssh_encfs'):
-        ssh = sshtools.SSH(cfg)
-        ssh.benchmarkCipher(args.FILE_SIZE)
-        sys.exit(bitbase.RETURN_OK)
-
-    # else
+    # SSH cipher benchmark is no longer available with restic backend
     logger.error(
-        f"SSH is not configured for profile '{cfg.profileName()}'!")
+        'SSH cipher benchmark is not available. Restic handles '
+        'remote backends natively.')
     sys.exit(bitbase.RETURN_ERR)
 
 
