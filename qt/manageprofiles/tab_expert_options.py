@@ -262,8 +262,8 @@ class ExpertOptionsTab(QDialog):
         self._cb_preserve_xattr.setChecked(self.config.preserveXattr())
 
         self._cb_one_filesystem.setChecked(self.config.oneFileSystem())
-        self._cb_restic_options.setChecked(self.config.rsyncOptionsEnabled())
-        self._txt_restic_options.setText(self.config.rsyncOptions())
+        self._cb_restic_options.setChecked(self.config.extraOptionsEnabled())
+        self._txt_restic_options.setText(self.config.extraOptions())
 
     def store_values(self):
         """Store values from GUI into the config"""
@@ -285,7 +285,7 @@ class ExpertOptionsTab(QDialog):
         self.config.setPreserveXattr(self._cb_preserve_xattr.isChecked())
 
         self.config.setOneFileSystem(self._cb_one_filesystem.isChecked())
-        self.config.setRsyncOptions(self._cb_restic_options.isChecked(),
+        self.config.setExtraOptions(self._cb_restic_options.isChecked(),
                                     self._txt_restic_options.text())
 
     def update_items_state(self, enabled: bool):

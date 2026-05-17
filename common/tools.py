@@ -2151,7 +2151,7 @@ class Execute:
         try:
             # register signals for pause, resume and kill
             # Forward these signals (sent to the "backintime" process
-            # normally) to the child process ("rsync" normally).
+            # normally) to the child process.
             # Note: SIGSTOP (unblockable stop) cannot be forwarded because
             # it cannot be caught in a signal handler!
             signal.signal(signal.SIGTSTP, self.pause)
@@ -2171,13 +2171,13 @@ class Execute:
         self.currentProc = subprocess.Popen(
             self.cmd, stdout=subprocess.PIPE, stderr=stderr)
 
-        # # TEST code for developers to simulate a killed rsync process
-        # if self.printable_cmd.startswith("rsync --recursive"):
+        # # TEST code for developers to simulate a killed child process
+        # if self.printable_cmd.startswith("restic backup"):
         #     # signal 15 (SIGTERM) like "killall" and "kill" do by default
         #     self.currentProc.terminate()
         #     # self.currentProc.send_signal(signal.SIGHUP)  # signal 1
         #     # self.currentProc.kill()  # signal 9
-        #     logger.error("rsync killed for testing purposes during "
+        #     logger.error("child process killed for testing purposes during "
         #                  "development")
 
         if self.callback:
@@ -2210,7 +2210,7 @@ class Execute:
         #      to directly process each stdout line by calling the callback...
 
         ret_val = self.currentProc.returncode
-        # TODO ret_val is sometimes 0 instead of e.g. 23 for rsync. Why?
+        # TODO ret_val is sometimes 0 instead of non-zero exit code. Why?
 
         try:
             # reset signal handler to their default

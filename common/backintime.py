@@ -173,7 +173,7 @@ def startApp(bin_name: str) -> config.Config | None:
         data_path=args.share_path,
         profile=args.profile,
         # Dev note (buhtz, 2025): There is not a default value in all cases,
-        # because "--checksum" is exclusive to rsync-related commands.
+        # because "--checksum" is exclusive to backup-related commands.
         checksum=getattr(args, 'checksum', None),
         check=False)
 

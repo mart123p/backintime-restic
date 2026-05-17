@@ -190,7 +190,7 @@ class Config(configfile.ConfigFileWithProfiles):
                                          'schedule.custom_time',
                                          profile)
 
-                    # we don't have 'full rsync mode' anymore
+                    # Migrate legacy 'full rsync mode' config key
                     self.remapProfileKey('snapshots.full_rsync.take_snapshot_regardless_of_changes',
                                          'snapshots.take_snapshot_regardless_of_changes',
                                          profile)
@@ -1211,10 +1211,7 @@ class Config(configfile.ConfigFileWithProfiles):
 
     def excludeBySize(self, profile_id = None):
         #?Exclude files bigger than value in MiB.
-        #?With 'Full rsync mode' disabled this will only affect new files
-        #?because for rsync this is a transfer option, not an exclude option.
-        #?So big files that has been backed up before will remain in snapshots
-        #?even if they had changed.
+        #?Files exceeding this size will be excluded from backups.
         return self.profileIntValue('snapshots.exclude.bysize.value', 500, profile_id)
 
     def setExcludeBySize(self, enabled, value, profile_id = None):
@@ -1597,15 +1594,15 @@ class Config(configfile.ConfigFileWithProfiles):
     def setOneFileSystem(self, value, profile_id = None):
         return self.setProfileBoolValue('snapshots.one_file_system', value, profile_id)
 
-    def rsyncOptionsEnabled(self, profile_id = None):
+    def extraOptionsEnabled(self, profile_id = None):
         #?Pass additional options to restic (legacy config key name).
         return self.profileBoolValue('snapshots.rsync_options.enabled', False, profile_id)
 
-    def rsyncOptions(self, profile_id = None):
+    def extraOptions(self, profile_id = None):
         #?Additional restic options (legacy config key name).
         return self.profileStrValue('snapshots.rsync_options.value', '', profile_id)
 
-    def setRsyncOptions(self, enabled, value, profile_id = None):
+    def setExtraOptions(self, enabled, value, profile_id = None):
         self.setProfileBoolValue('snapshots.rsync_options.enabled', enabled, profile_id)
         self.setProfileStrValue('snapshots.rsync_options.value', value, profile_id)
 
@@ -1615,9 +1612,6 @@ class Config(configfile.ConfigFileWithProfiles):
 
     def sshPrefix(self, profile_id = None):
         #?Prefix to run before every command on remote host. Variables need to be escaped with \\$FOO.
-        #?This doesn't touch rsync. So to add a prefix for rsync use
-        #?\fIprofile<N>.snapshots.rsync_options.value\fR with
-        #?--rsync-path="FOO=bar:\\$FOO /usr/bin/rsync"
         return self.profileStrValue('snapshots.ssh.prefix.value', self.DEFAULT_SSH_PREFIX, profile_id)
 
     def setSshPrefix(self, enabled, value, profile_id = None):

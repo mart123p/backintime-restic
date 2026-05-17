@@ -137,11 +137,7 @@ class ExcludeTab(QWidget):
             [
                 _('Exclude files bigger than value in {size_unit}.')
                 .format(size_unit='MiB'),
-                _("With 'Full rsync mode' disabled, this setting affects only "
-                  "newly created files, as rsync treats it as transfer option "
-                  "rather than an exclusion rule. Consequently, large files "
-                  "that have already been backed up will remain in backups "
-                  "even if they are modified.")
+                _('Files exceeding this size will be excluded from backups.')
             ]
         )
         hlayout.addWidget(self.cb_exclude_by_size)
@@ -255,10 +251,10 @@ class ExcludeTab(QWidget):
     def btn_exclude_add_clicked(self):
         """Handle button click
 
-        Dev note (buhtz, 2025-10): Feature idea for later versions. Use rsync
-        --dry-run with --debug=FILTER to see include/exclude decisions. Show
-        them life as preview in the pattern input dialog, for a specific file.
-        Extend this feature to show all include and exclude matches (#734).
+        Dev note (buhtz, 2025-10): Feature idea for later versions. Show
+        include/exclude decisions as a preview in the pattern input dialog,
+        for a specific file. Extend this feature to show all include and
+        exclude matches (#734).
         """
 
         dlg = QDialog(self)
@@ -269,10 +265,10 @@ class ExcludeTab(QWidget):
         layout.addWidget(line_edit)
         label_help = HypertextLabel(
             label=_(
-                'For help, see the rsync man page section {link}.'
-            ).format(link='<a href="rsync">PATTERN MATCHING RULES</a>'),
-            link_slot=self._slot_rsync_pattern_match_link,
-            link_tooltip=_('Open rsync man page')
+                'For help, see the restic documentation for {link}.'
+            ).format(link='<a href="restic">exclude patterns</a>'),
+            link_slot=self._slot_exclude_pattern_help_link,
+            link_tooltip=_('Open restic documentation')
         )
         layout.addWidget(label_help)
         buttons = QDialogButtonBox(
@@ -292,8 +288,10 @@ class ExcludeTab(QWidget):
 
         self.add_exclude(pattern)
 
-    def _slot_rsync_pattern_match_link(self):
-        qttools.open_man_page('rsync', section='PATTERN MATCHING RULES')
+    def _slot_exclude_pattern_help_link(self):
+        """Open restic exclude pattern documentation."""
+        import webbrowser
+        webbrowser.open('https://restic.readthedocs.io/en/latest/040_backup.html#excluding-files')
 
     def btn_exclude_file_clicked(self):
         """Handle button click"""

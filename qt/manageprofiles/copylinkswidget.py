@@ -6,8 +6,8 @@
 # This file is part of the program "Back In Time" which is released under GNU
 # General Public License v2 (GPLv2). See LICENSES directory or go to
 # <https://spdx.org/licenses/GPL-2.0-or-later.html>.
-"""A widget combining the two rsync options --copy-links and
---copy-unsafe-links.
+"""A widget combining the copy-links and copy-unsafe-links symlink
+handling options.
 """
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
@@ -22,7 +22,7 @@ import qttools
 
 
 class CopySymlinksWidget(QWidget):
-    """Mimic the logic of rsyncs copy-links and copy-unsafe-links setting.
+    """Mimic the logic of copy-links and copy-unsafe-links settings.
 
     The widget contains two radio buttons that are enabled by an overall
     checkbox.
@@ -60,7 +60,7 @@ class CopySymlinksWidget(QWidget):
                 _('All symbolic links are replaced with real files or '
                   'directories they point to. This increases backup '
                   'size and may store the same files multiple times.'),
-                _("Uses 'rsync --copy-links'."),
+                _("Uses '--copy-links' option."),
             ]
         )
 
@@ -72,7 +72,7 @@ class CopySymlinksWidget(QWidget):
                 _('Only links pointing outside the backup source are copied '
                   'as files. This increases backup size and may store the '
                   'same files multiple times.'),
-                _("Uses 'rsync --copy-unsafe-links'.")
+                _("Uses '--copy-unsafe-links' option.")
             ]
         )
 
@@ -110,7 +110,7 @@ class CopySymlinksWidget(QWidget):
             all_links: Related to --copy-links
             only_external: Related to --copy-unsafe-links
 
-        The logic of two rsyncs is preserved. Also the enabled state is
+        The logic of the two options is preserved. Also the enabled state is
         considered.
         """
         # Disable the whole widget

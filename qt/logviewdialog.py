@@ -132,7 +132,7 @@ class LogViewDialog(QDialog):  # pylint: disable=too-many-instance-attributes
         wdg.addItem(_('Changes'), snapshotlog.LogFilter.CHANGES)
         wdg.addItem(ngettext('Information', 'Information', 2),
                     snapshotlog.LogFilter.INFORMATION)
-        wdg.addItem(_('rsync transfer failures (experimental)'),
+        wdg.addItem(_('Transfer failures (experimental)'),
                     snapshotlog.LogFilter.RSYNC_TRANSFER_FAILURES)
 
         return wdg
