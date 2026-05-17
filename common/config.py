@@ -43,7 +43,7 @@ import tools
 import configfile
 import encode
 import logger
-import sshtools
+import restictools
 import encfstools
 import gocryptfstools
 import password
@@ -234,45 +234,43 @@ class Config(configfile.ConfigFileWithProfiles):
                     #     need_2_pw|lbl_pw_2
                     # ),
                     'local': (
-                        None, _('Local'), False, False),
+                        None, _('Local'), _('Repository'), False),
+                    'sftp': (
+                        None, _('SFTP'),
+                        _('Repository'), False),
+                    'rest': (
+                        None, _('REST Server'),
+                        _('Repository'), False),
+                    's3': (
+                        None, _('Amazon S3'),
+                        _('Repository'), False),
+                    'b2': (
+                        None, _('Backblaze B2'),
+                        _('Repository'), False),
+                    'azure': (
+                        None, _('Azure Blob Storage'),
+                        _('Repository'), False),
+                    'gs': (
+                        None, _('Google Cloud Storage'),
+                        _('Repository'), False),
                     'local_gocryptfs': (
                         gocryptfstools.GocryptfsMount,
                         _('Local encrypted') + ' (via gocryptfs)',
                         _('Encryption'),
                         False
                     ),
-                    'ssh': (
-                        sshtools.SSH, _('SSH'), _('SSH private key'), False),
                     'local_encfs': (
                         encfstools.EncFS_mount,
                         'DEPRECATED - Local encrypted (via EncFS)',
                         _('Encryption'),
                         False
                     ),
-                    'ssh_encfs': (
-                        encfstools.EncFS_SSH,
-                        'DEPRECATED - SSH encrypted (via EncFS)',
-                        _('SSH private key'),
-                        _('Encryption')
-                    ),
         }
 
-        # Deprecated: #2176
-        self.SSH_CIPHERS = {
-            'default': 'Default',
-            'aes128-ctr': 'AES128-CTR',
-            'aes192-ctr': 'AES192-CTR',
-            'aes256-ctr': 'AES256-CTR',
-            'arcfour256': 'ARCFOUR256',
-            'arcfour128': 'ARCFOUR128',
-            'aes128-cbc': 'AES128-CBC',
-            '3des-cbc': '3DES-CBC',
-            'blowfish-cbc': 'Blowfish-CBC',
-            'cast128-cbc': 'Cast128-CBC',
-            'aes192-cbc': 'AES192-CBC',
-            'aes256-cbc': 'AES256-CBC',
-            'arcfour': 'ARCFOUR'
-        }
+        # Restic backend modes (for reference)
+        self.RESTIC_MODES = (
+            'local', 'sftp', 'rest', 's3', 'b2', 'azure', 'gs'
+        )
 
     def save(self):
         self._unsaved_profiles = []
@@ -432,7 +430,7 @@ class Config(configfile.ConfigFileWithProfiles):
 
     def snapshotsMode(self, profile_id=None):
         #? Use mode (or backend) for this snapshot. Look at 'man backintime'
-        #? section 'Modes'.;local|local_encfs|ssh|ssh_encfs|local_gocryptfs
+        #? section 'Modes'.;local|sftp|rest|s3|b2|azure|gs|local_gocryptfs|local_encfs
         return self.profileStrValue('snapshots.mode', 'local', profile_id)
 
     def setSnapshotsMode(self, value, profile_id = None):
@@ -466,8 +464,350 @@ class Config(configfile.ConfigFileWithProfiles):
     def setLanguage(self, language: str):
         self.setStrValue('global.language', language if language else '')
 
-    # SSH
-    def sshSnapshotsPath(self, profile_id = None):
+    # Restic backend configuration
+    def resticRepo(self, profile_id=None):
+        #?Full restic repository URI (e.g. /path, sftp:user@host:/path,
+        #?rest:https://host:port/, s3:endpoint/bucket, b2:bucket:path,
+        #?azure:container:path, gs:bucket:/path).
+        return self.profileStrValue(
+            'snapshots.restic.repo', '', profile_id)
+
+    def setResticRepo(self, value, profile_id=None):
+        self.setProfileStrValue(
+            'snapshots.restic.repo', value, profile_id)
+
+    def resticPassword(self, profile_id=None):
+        #?Restic repository password (stored in config).
+        #?Consider using keyring instead for security.
+        return self.profileStrValue(
+            'snapshots.restic.password', '', profile_id)
+
+    def setResticPassword(self, value, profile_id=None):
+        self.setProfileStrValue(
+            'snapshots.restic.password', value, profile_id)
+
+    def resticPasswordStorage(self, profile_id=None):
+        #?Where to store the restic repository password.;config|keyring
+        return self.profileStrValue(
+            'snapshots.restic.password_storage', 'config', profile_id)
+
+    def setResticPasswordStorage(self, value, profile_id=None):
+        self.setProfileStrValue(
+            'snapshots.restic.password_storage', value, profile_id)
+
+    def resticLimitUpload(self, profile_id=None):
+        #?Limit upload bandwidth in KiB/s. 0 = unlimited.
+        return self.profileIntValue(
+            'snapshots.restic.limit_upload', 0, profile_id)
+
+    def setResticLimitUpload(self, value, profile_id=None):
+        self.setProfileIntValue(
+            'snapshots.restic.limit_upload', value, profile_id)
+
+    def resticLimitDownload(self, profile_id=None):
+        #?Limit download bandwidth in KiB/s. 0 = unlimited.
+        return self.profileIntValue(
+            'snapshots.restic.limit_download', 0, profile_id)
+
+    def setResticLimitDownload(self, value, profile_id=None):
+        self.setProfileIntValue(
+            'snapshots.restic.limit_download', value, profile_id)
+
+    # SFTP backend
+    def sftpHost(self, profile_id=None):
+        #?SFTP host for restic sftp backend.;IP or domain address
+        return self.profileStrValue(
+            'snapshots.restic.sftp.host', '', profile_id)
+
+    def setSftpHost(self, value, profile_id=None):
+        self.setProfileStrValue(
+            'snapshots.restic.sftp.host', value, profile_id)
+
+    def sftpPort(self, profile_id=None):
+        #?SFTP port.;0-65535
+        return self.profileIntValue(
+            'snapshots.restic.sftp.port', 22, profile_id)
+
+    def setSftpPort(self, value, profile_id=None):
+        self.setProfileIntValue(
+            'snapshots.restic.sftp.port', value, profile_id)
+
+    def sftpUser(self, profile_id=None):
+        #?SFTP user.;;local user name
+        return self.profileStrValue(
+            'snapshots.restic.sftp.user', getpass.getuser(), profile_id)
+
+    def setSftpUser(self, value, profile_id=None):
+        self.setProfileStrValue(
+            'snapshots.restic.sftp.user', value, profile_id)
+
+    def sftpPath(self, profile_id=None):
+        #?SFTP path on remote host.;absolute or relative path
+        return self.profileStrValue(
+            'snapshots.restic.sftp.path', '', profile_id)
+
+    def setSftpPath(self, value, profile_id=None):
+        self.setProfileStrValue(
+            'snapshots.restic.sftp.path', value, profile_id)
+
+    # REST server backend
+    def restUrl(self, profile_id=None):
+        #?REST server URL for restic backend (e.g. https://host:port/).
+        return self.profileStrValue(
+            'snapshots.restic.rest.url', '', profile_id)
+
+    def setRestUrl(self, value, profile_id=None):
+        self.setProfileStrValue(
+            'snapshots.restic.rest.url', value, profile_id)
+
+    # S3 backend
+    def s3Endpoint(self, profile_id=None):
+        #?S3 endpoint (e.g. s3.amazonaws.com).
+        return self.profileStrValue(
+            'snapshots.restic.s3.endpoint', 's3.amazonaws.com', profile_id)
+
+    def setS3Endpoint(self, value, profile_id=None):
+        self.setProfileStrValue(
+            'snapshots.restic.s3.endpoint', value, profile_id)
+
+    def s3Bucket(self, profile_id=None):
+        #?S3 bucket name.
+        return self.profileStrValue(
+            'snapshots.restic.s3.bucket', '', profile_id)
+
+    def setS3Bucket(self, value, profile_id=None):
+        self.setProfileStrValue(
+            'snapshots.restic.s3.bucket', value, profile_id)
+
+    def s3Path(self, profile_id=None):
+        #?Path within the S3 bucket.
+        return self.profileStrValue(
+            'snapshots.restic.s3.path', '', profile_id)
+
+    def setS3Path(self, value, profile_id=None):
+        self.setProfileStrValue(
+            'snapshots.restic.s3.path', value, profile_id)
+
+    def s3AccessKeyId(self, profile_id=None):
+        #?AWS Access Key ID for S3 backend.
+        return self.profileStrValue(
+            'snapshots.restic.s3.access_key_id', '', profile_id)
+
+    def setS3AccessKeyId(self, value, profile_id=None):
+        self.setProfileStrValue(
+            'snapshots.restic.s3.access_key_id', value, profile_id)
+
+    def s3SecretAccessKey(self, profile_id=None):
+        #?AWS Secret Access Key for S3 backend.
+        return self.profileStrValue(
+            'snapshots.restic.s3.secret_access_key', '', profile_id)
+
+    def setS3SecretAccessKey(self, value, profile_id=None):
+        self.setProfileStrValue(
+            'snapshots.restic.s3.secret_access_key', value, profile_id)
+
+    # B2 backend
+    def b2AccountId(self, profile_id=None):
+        #?Backblaze B2 Account ID.
+        return self.profileStrValue(
+            'snapshots.restic.b2.account_id', '', profile_id)
+
+    def setB2AccountId(self, value, profile_id=None):
+        self.setProfileStrValue(
+            'snapshots.restic.b2.account_id', value, profile_id)
+
+    def b2AccountKey(self, profile_id=None):
+        #?Backblaze B2 Account Key.
+        return self.profileStrValue(
+            'snapshots.restic.b2.account_key', '', profile_id)
+
+    def setB2AccountKey(self, value, profile_id=None):
+        self.setProfileStrValue(
+            'snapshots.restic.b2.account_key', value, profile_id)
+
+    def b2Bucket(self, profile_id=None):
+        #?Backblaze B2 bucket name.
+        return self.profileStrValue(
+            'snapshots.restic.b2.bucket', '', profile_id)
+
+    def setB2Bucket(self, value, profile_id=None):
+        self.setProfileStrValue(
+            'snapshots.restic.b2.bucket', value, profile_id)
+
+    def b2Path(self, profile_id=None):
+        #?Path within the B2 bucket.
+        return self.profileStrValue(
+            'snapshots.restic.b2.path', '', profile_id)
+
+    def setB2Path(self, value, profile_id=None):
+        self.setProfileStrValue(
+            'snapshots.restic.b2.path', value, profile_id)
+
+    # Azure backend
+    def azureAccountName(self, profile_id=None):
+        #?Azure Storage Account Name.
+        return self.profileStrValue(
+            'snapshots.restic.azure.account_name', '', profile_id)
+
+    def setAzureAccountName(self, value, profile_id=None):
+        self.setProfileStrValue(
+            'snapshots.restic.azure.account_name', value, profile_id)
+
+    def azureAccountKey(self, profile_id=None):
+        #?Azure Storage Account Key.
+        return self.profileStrValue(
+            'snapshots.restic.azure.account_key', '', profile_id)
+
+    def setAzureAccountKey(self, value, profile_id=None):
+        self.setProfileStrValue(
+            'snapshots.restic.azure.account_key', value, profile_id)
+
+    def azureContainer(self, profile_id=None):
+        #?Azure Blob Storage container name.
+        return self.profileStrValue(
+            'snapshots.restic.azure.container', '', profile_id)
+
+    def setAzureContainer(self, value, profile_id=None):
+        self.setProfileStrValue(
+            'snapshots.restic.azure.container', value, profile_id)
+
+    def azurePath(self, profile_id=None):
+        #?Path within the Azure container.
+        return self.profileStrValue(
+            'snapshots.restic.azure.path', '', profile_id)
+
+    def setAzurePath(self, value, profile_id=None):
+        self.setProfileStrValue(
+            'snapshots.restic.azure.path', value, profile_id)
+
+    # GCS backend
+    def gsBucket(self, profile_id=None):
+        #?Google Cloud Storage bucket name.
+        return self.profileStrValue(
+            'snapshots.restic.gs.bucket', '', profile_id)
+
+    def setGsBucket(self, value, profile_id=None):
+        self.setProfileStrValue(
+            'snapshots.restic.gs.bucket', value, profile_id)
+
+    def gsPath(self, profile_id=None):
+        #?Path within the GCS bucket.
+        return self.profileStrValue(
+            'snapshots.restic.gs.path', '', profile_id)
+
+    def setGsPath(self, value, profile_id=None):
+        self.setProfileStrValue(
+            'snapshots.restic.gs.path', value, profile_id)
+
+    def gsProjectId(self, profile_id=None):
+        #?Google Cloud project ID for GCS backend.
+        return self.profileStrValue(
+            'snapshots.restic.gs.project_id', '', profile_id)
+
+    def setGsProjectId(self, value, profile_id=None):
+        self.setProfileStrValue(
+            'snapshots.restic.gs.project_id', value, profile_id)
+
+    def resticExtraOptions(self, profile_id=None):
+        #?Additional restic command-line options.
+        return self.profileStrValue(
+            'snapshots.restic.extra_options', '', profile_id)
+
+    def setResticExtraOptions(self, value, profile_id=None):
+        self.setProfileStrValue(
+            'snapshots.restic.extra_options', value, profile_id)
+
+    def resticExtraOptionsEnabled(self, profile_id=None):
+        #?Enable additional restic command-line options.
+        return self.profileBoolValue(
+            'snapshots.restic.extra_options.enabled', False, profile_id)
+
+    def setResticExtraOptionsEnabled(self, value, profile_id=None):
+        self.setProfileBoolValue(
+            'snapshots.restic.extra_options.enabled', value, profile_id)
+
+    def buildResticRepoUri(self, profile_id=None):
+        """Build the restic repository URI from config fields.
+
+        Returns:
+            str: The full restic repository URI.
+        """
+        mode = self.snapshotsMode(profile_id)
+
+        if mode == 'local':
+            return self.get_snapshots_path(profile_id)
+        elif mode == 'sftp':
+            return restictools.build_repo_uri(
+                'sftp',
+                host=self.sftpHost(profile_id),
+                port=self.sftpPort(profile_id),
+                user=self.sftpUser(profile_id),
+                path=self.sftpPath(profile_id)
+            )
+        elif mode == 'rest':
+            return restictools.build_repo_uri(
+                'rest', url=self.restUrl(profile_id))
+        elif mode == 's3':
+            return restictools.build_repo_uri(
+                's3',
+                endpoint=self.s3Endpoint(profile_id),
+                bucket=self.s3Bucket(profile_id),
+                path=self.s3Path(profile_id)
+            )
+        elif mode == 'b2':
+            return restictools.build_repo_uri(
+                'b2',
+                bucket=self.b2Bucket(profile_id),
+                path=self.b2Path(profile_id)
+            )
+        elif mode == 'azure':
+            return restictools.build_repo_uri(
+                'azure',
+                container=self.azureContainer(profile_id),
+                path=self.azurePath(profile_id)
+            )
+        elif mode == 'gs':
+            return restictools.build_repo_uri(
+                'gs',
+                bucket=self.gsBucket(profile_id),
+                path=self.gsPath(profile_id)
+            )
+        else:
+            # Fallback for legacy modes
+            return self.resticRepo(profile_id)
+
+    def buildResticExtraEnv(self, profile_id=None):
+        """Build extra environment variables for the restic backend.
+
+        Returns:
+            dict: Environment variables for cloud backends.
+        """
+        mode = self.snapshotsMode(profile_id)
+
+        if mode == 's3':
+            return restictools.build_extra_env(
+                's3',
+                aws_access_key_id=self.s3AccessKeyId(profile_id),
+                aws_secret_access_key=self.s3SecretAccessKey(profile_id)
+            )
+        elif mode == 'b2':
+            return restictools.build_extra_env(
+                'b2',
+                b2_account_id=self.b2AccountId(profile_id),
+                b2_account_key=self.b2AccountKey(profile_id)
+            )
+        elif mode == 'azure':
+            return restictools.build_extra_env(
+                'azure',
+                azure_account_name=self.azureAccountName(profile_id),
+                azure_account_key=self.azureAccountKey(profile_id)
+            )
+        elif mode == 'gs':
+            return restictools.build_extra_env(
+                'gs',
+                google_project_id=self.gsProjectId(profile_id)
+            )
+        return {}
         #?Snapshot path on remote host. If the path is relative (no leading '/')
         #?it will start from remote Users homedir. An empty path will be replaced
         #?with './'.;absolute or relative path
@@ -1146,21 +1486,21 @@ class Config(configfile.ConfigFileWithProfiles):
         self.setProfileBoolValue('snapshots.user_backup.ionice', value, profile_id)
 
     def niceOnRemote(self, profile_id = None):
-        #?Run rsync and other commands on remote host with 'nice \-n19'
+        #?Run restic and other commands on remote host with 'nice \-n19'
         return self.profileBoolValue('snapshots.ssh.nice', self.DEFAULT_RUN_NICE_ON_REMOTE, profile_id)
 
     def setNiceOnRemote(self, value, profile_id = None):
         self.setProfileBoolValue('snapshots.ssh.nice', value, profile_id)
 
     def ioniceOnRemote(self, profile_id = None):
-        #?Run rsync and other commands on remote host with 'ionice \-c2 \-n7'
+        #?Run restic and other commands on remote host with 'ionice \-c2 \-n7'
         return self.profileBoolValue('snapshots.ssh.ionice', self.DEFAULT_RUN_IONICE_ON_REMOTE, profile_id)
 
     def setIoniceOnRemote(self, value, profile_id = None):
         self.setProfileBoolValue('snapshots.ssh.ionice', value, profile_id)
 
     def nocacheOnLocal(self, profile_id = None):
-        #?Run rsync on local machine with 'nocache'.
+        #?Run restic on local machine with 'nocache'.
         #?This will prevent files from being cached in memory.
         return self.profileBoolValue('snapshots.local.nocache', self.DEFAULT_RUN_NOCACHE_ON_LOCAL, profile_id)
 
@@ -1168,7 +1508,7 @@ class Config(configfile.ConfigFileWithProfiles):
         self.setProfileBoolValue('snapshots.local.nocache', value, profile_id)
 
     def nocacheOnRemote(self, profile_id = None):
-        #?Run rsync on remote host with 'nocache'.
+        #?Run restic on remote host with 'nocache'.
         #?This will prevent files from being cached in memory.
         return self.profileBoolValue('snapshots.ssh.nocache', self.DEFAULT_RUN_NOCACHE_ON_REMOTE, profile_id)
 
@@ -1194,8 +1534,7 @@ class Config(configfile.ConfigFileWithProfiles):
         self.setProfileBoolValue('snapshots.cron.redirect_stderr', value, profile_id)
 
     def bwlimitEnabled(self, profile_id = None):
-        #?Limit rsync bandwidth usage over network. Use this with mode SSH.
-        #?For mode Local you should rather use ionice.
+        #?Limit restic bandwidth usage over network.
         return self.profileBoolValue('snapshots.bwlimit.enabled', False, profile_id)
 
     def bwlimit(self, profile_id = None):
@@ -1229,9 +1568,7 @@ class Config(configfile.ConfigFileWithProfiles):
         return self.setProfileBoolValue('snapshots.preserve_xattr', value, profile_id)
 
     def copyUnsafeLinks(self, profile_id = None):
-        #?This tells rsync to copy the referent of symbolic links that point
-        #?outside the copied tree.  Absolute symlinks are also treated like
-        #?ordinary files.
+        #?Copy the referent of symbolic links that point outside the copied tree.
         return self.profileBoolValue('snapshots.copy_unsafe_links', False, profile_id)
 
     def setCopyUnsafeLinks(self, value, profile_id = None):
@@ -1246,7 +1583,7 @@ class Config(configfile.ConfigFileWithProfiles):
         return self.setProfileBoolValue('snapshots.copy_links', value, profile_id)
 
     def oneFileSystem(self, profile_id = None):
-        #?Use rsync's "--one-file-system" to avoid crossing filesystem
+        #?Use "--one-file-system" to avoid crossing filesystem
         #?boundaries when recursing.
         return self.profileBoolValue('snapshots.one_file_system', False, profile_id)
 
@@ -1254,11 +1591,11 @@ class Config(configfile.ConfigFileWithProfiles):
         return self.setProfileBoolValue('snapshots.one_file_system', value, profile_id)
 
     def rsyncOptionsEnabled(self, profile_id = None):
-        #?Past additional options to rsync
+        #?Pass additional options to restic (legacy config key name).
         return self.profileBoolValue('snapshots.rsync_options.enabled', False, profile_id)
 
     def rsyncOptions(self, profile_id = None):
-        #?rsync options. Options must be quoted e.g. \-\-exclude-from="/path/to/my exclude file"
+        #?Additional restic options (legacy config key name).
         return self.profileStrValue('snapshots.rsync_options.value', '', profile_id)
 
     def setRsyncOptions(self, enabled, value, profile_id = None):

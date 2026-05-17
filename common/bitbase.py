@@ -17,7 +17,7 @@ from pathlib import Path
 # |-------------|
 
 # Used as a label in the GUI. Not sure if this should be translatable.
-APP_NAME = 'Back In Time'
+APP_NAME = 'Back In Time Restic'
 
 BINARY_NAME_BASE = 'backintime'
 BINARY_NAME_CLI = f'{BINARY_NAME_BASE}'
@@ -45,9 +45,9 @@ TRANSLATION_CREDITS_MISC = (
 # |-------------------------------|
 
 # See issue #1734 and #1735
-URL_ENCRYPT_TRANSITION = 'https://github.com/bit-team/backintime' \
+URL_ENCRYPT_TRANSITION = 'https://github.com/mart123p/backintime-restic' \
                          '/blob/-/doc/ENCRYPT_TRANSITION.md'
-URL_SOURCE = 'https://github.com/bit-team/backintime'
+URL_SOURCE = 'https://github.com/mart123p/backintime-restic'
 URL_WEBSITE = URL_SOURCE
 URL_FAQ = f'{URL_WEBSITE}/blob/-/FAQ.md'
 URL_ISSUES = f'{URL_WEBSITE}/issues'
