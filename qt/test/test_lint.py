@@ -58,11 +58,11 @@ full_test_files = [_base_dir / fp for fp in (
     'manageprofiles/excludesuggestions.py',
     'manageprofiles/schedulewidget.py',
     'manageprofiles/sectionedchecklist.py',
-    'manageprofiles/sshkeyselector.py',
+
     'manageprofiles/spinboxunit.py',
     'manageprofiles/statebindcheckbox.py',
     'manageprofiles/storagesizewidget.py',
-    'manageprofiles/sshproxywidget.py',
+
     'manageprofiles/tab_exclude.py',
     'manageprofiles/tab_expert_options.py',
     'manageprofiles/tab_general.py',

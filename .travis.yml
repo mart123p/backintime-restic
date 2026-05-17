@@ -41,7 +41,7 @@ before_install:
   - sudo rm -f /etc/apt/sources.list.d/mongodb*.list
   - sudo apt-key del 90CFB1F5
   - sudo apt-get -qq update
-  # install screen, and util-linux (provides flock) for test_sshtools
+  # install screen, and util-linux (provides flock) for tests
   - sudo apt-get install -y sshfs screen util-linux libdbus-1-dev
   - sudo apt-get install -y ruby rubygems asciidoctor encfs gocryptfs
   - sudo gem install asciidoctor

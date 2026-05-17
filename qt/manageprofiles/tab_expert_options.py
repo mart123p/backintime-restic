@@ -214,19 +214,19 @@ class ExpertOptionsTab(QDialog):
         # additional restic options
         tooltip = _('Additional command-line options to pass to restic.')
 
-        self._txt_rsync_options = QLineEdit(self)
-        self._txt_rsync_options.setToolTip(tooltip)
+        self._txt_restic_options = QLineEdit(self)
+        self._txt_restic_options.setToolTip(tooltip)
 
-        self._cb_rsync_options = StateBindCheckBox(
+        self._cb_restic_options = StateBindCheckBox(
             _('Pass additional options to restic'),
             self,
-            self._txt_rsync_options)
+            self._txt_restic_options)
 
-        self._cb_rsync_options.setToolTip(tooltip)
+        self._cb_restic_options.setToolTip(tooltip)
 
         sub_grid = QGridLayout()
-        sub_grid.addWidget(self._cb_rsync_options, 0, 0)
-        sub_grid.addWidget(self._txt_rsync_options, 0, 1)
+        sub_grid.addWidget(self._cb_restic_options, 0, 0)
+        sub_grid.addWidget(self._txt_restic_options, 0, 1)
         tab_layout.addLayout(sub_grid)
 
         tab_layout.addStretch()
@@ -262,8 +262,8 @@ class ExpertOptionsTab(QDialog):
         self._cb_preserve_xattr.setChecked(self.config.preserveXattr())
 
         self._cb_one_filesystem.setChecked(self.config.oneFileSystem())
-        self._cb_rsync_options.setChecked(self.config.rsyncOptionsEnabled())
-        self._txt_rsync_options.setText(self.config.rsyncOptions())
+        self._cb_restic_options.setChecked(self.config.rsyncOptionsEnabled())
+        self._txt_restic_options.setText(self.config.rsyncOptions())
 
     def store_values(self):
         """Store values from GUI into the config"""
@@ -285,8 +285,8 @@ class ExpertOptionsTab(QDialog):
         self.config.setPreserveXattr(self._cb_preserve_xattr.isChecked())
 
         self.config.setOneFileSystem(self._cb_one_filesystem.isChecked())
-        self.config.setRsyncOptions(self._cb_rsync_options.isChecked(),
-                                    self._txt_rsync_options.text())
+        self.config.setRsyncOptions(self._cb_restic_options.isChecked(),
+                                    self._txt_restic_options.text())
 
     def update_items_state(self, enabled: bool):
         """Update state of widgets based on changed profile mode."""
