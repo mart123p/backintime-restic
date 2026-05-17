@@ -1210,6 +1210,39 @@ def onBattery():
     return False
 
 
+def resticBinary() -> str:
+    """Return the path to the restic binary.
+
+    Returns:
+        str: Full path to the restic binary, or empty string if not found.
+    """
+    path = shutil.which('restic')
+    return path if path else ''
+
+
+def resticVersion() -> str:
+    """Return the installed restic version string.
+
+    Returns:
+        str: Version string (e.g. ``'0.16.4'``), or empty string if
+             restic is not installed.
+    """
+    binary = resticBinary()
+    if not binary:
+        return ''
+    try:
+        proc = subprocess.run(
+            [binary, 'version'],
+            capture_output=True, text=True, check=True
+        )
+        parts = proc.stdout.strip().split()
+        if len(parts) >= 2:
+            return parts[1]
+        return proc.stdout.strip()
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return ''
+
+
 def rsyncCaps() -> list[str]:
     """
     Get capabilities of the installed rsync binary. This can be different from
@@ -1218,6 +1251,9 @@ def rsyncCaps() -> list[str]:
     Dev note (buhtz, 2025-07): BIT uses --xattrs and --acls only. Both are
     introduced with rsync 3.0.0 in year 2008. Might be worth to keep this
     check.
+
+    Deprecated: This function is kept for backward compatibility but is no
+    longer used in the restic-based backup flow.
 
     Returns:
         List of str with rsyncs capabilities.

@@ -27,19 +27,15 @@ from PyQt6.QtWidgets import (QCheckBox,
 from config import Config
 import tools
 import logger
-import sshtools
-from exceptions import MountException, NoPubKeyLogin, KnownHost
+from exceptions import MountException
 import mount
-from bitbase import URL_ENCRYPT_TRANSITION, DIR_SSH_KEYS
+from bitbase import URL_ENCRYPT_TRANSITION
 import version
 import schedule
 import qttools
 import messagebox
-# from statedata import StateData
 from manageprofiles import combobox
 from manageprofiles import schedulewidget
-from manageprofiles.sshproxywidget import SshProxyWidget
-from manageprofiles.sshkeyselector import SshKeySelector
 from bitwidgets import HLineWidget
 from filedialog import FileDialog
 
@@ -99,73 +95,174 @@ class GeneralTab(QDialog):
         self._btn_backup_path.clicked.connect(
             self._slot_snapshots_path_clicked)
 
-        # --- SSH ---
+        # --- Restic Backend Settings ---
+        # SFTP backend
         group_box = QGroupBox(self)
-        self._group_mode_ssh = group_box
-        group_box.setTitle(_('SSH Settings'))
+        self._group_mode_sftp = group_box
+        group_box.setTitle(_('SFTP Settings'))
         tab_layout.addWidget(group_box)
 
         vlayout = QVBoxLayout(group_box)
-
         hlayout1 = QHBoxLayout()
         vlayout.addLayout(hlayout1)
         hlayout2 = QHBoxLayout()
         vlayout.addLayout(hlayout2)
-        # hlayout3 = QHBoxLayout()
-        # vlayout.addLayout(hlayout3)
 
-        self._lbl_ssh_host = QLabel(_('Host:'), self)
-        hlayout1.addWidget(self._lbl_ssh_host)
-        self._txt_ssh_host = QLineEdit(self)
-        hlayout1.addWidget(self._txt_ssh_host)
+        self._lbl_sftp_host = QLabel(_('Host:'), self)
+        hlayout1.addWidget(self._lbl_sftp_host)
+        self._txt_sftp_host = QLineEdit(self)
+        hlayout1.addWidget(self._txt_sftp_host)
 
-        self._lbl_ssh_port = QLabel(_('Port:'), self)
-        hlayout1.addWidget(self._lbl_ssh_port)
-        self._txt_ssh_port = QLineEdit(self)
-        hlayout1.addWidget(self._txt_ssh_port)
+        self._lbl_sftp_port = QLabel(_('Port:'), self)
+        hlayout1.addWidget(self._lbl_sftp_port)
+        self._txt_sftp_port = QLineEdit(self)
+        self._txt_sftp_port.setText('22')
+        hlayout1.addWidget(self._txt_sftp_port)
 
-        self._lbl_ssh_user = QLabel(_('User:'), self)
-        hlayout1.addWidget(self._lbl_ssh_user)
-        self._txt_ssh_user = QLineEdit(self)
-        hlayout1.addWidget(self._txt_ssh_user)
+        self._lbl_sftp_user = QLabel(_('User:'), self)
+        hlayout1.addWidget(self._lbl_sftp_user)
+        self._txt_sftp_user = QLineEdit(self)
+        hlayout1.addWidget(self._txt_sftp_user)
 
-        self._lbl_ssh_path = QLabel(_('Path:'), self)
-        hlayout2.addWidget(self._lbl_ssh_path)
-        self._txt_ssh_path = QLineEdit(self)
-        self._txt_ssh_path.textChanged.connect(self._slot_full_path_changed)
-        hlayout2.addWidget(self._txt_ssh_path)
+        self._lbl_sftp_path = QLabel(_('Path:'), self)
+        hlayout2.addWidget(self._lbl_sftp_path)
+        self._txt_sftp_path = QLineEdit(self)
+        self._txt_sftp_path.textChanged.connect(self._slot_full_path_changed)
+        hlayout2.addWidget(self._txt_sftp_path)
 
+        # REST Server backend
         group_box = QGroupBox(self)
-        group_box.setTitle(_('Key file:'))
-        group_layout = QVBoxLayout()
-        group_box.setLayout(group_layout)
-        self.key_selector = SshKeySelector(
-            self,
-            self._slot_ssh_private_key_file_clicked,
-            self._slot_ssh_key_gen_clicked
-        )
-        group_layout.addWidget(self.key_selector)
-        vlayout.addWidget(group_box)
+        self._group_mode_rest = group_box
+        group_box.setTitle(_('REST Server Settings'))
+        tab_layout.addWidget(group_box)
 
-        # Align the width of that three labels
-        width = max(
-            self._lbl_ssh_host.sizeHint().width(),
-            self._lbl_ssh_path.sizeHint().width()
-        )
-        self._lbl_ssh_host.setMinimumWidth(width)
-        self._lbl_ssh_path.setMinimumWidth(width)
+        vlayout = QVBoxLayout(group_box)
+        hlayout1 = QHBoxLayout()
+        vlayout.addLayout(hlayout1)
 
-        self._wdg_ssh_proxy = SshProxyWidget(
-            self,
-            self.config.sshProxyHost(),
-            self.config.sshProxyPort(),
-            self.config.sshProxyUser()
-        )
-        vlayout.addWidget(self._wdg_ssh_proxy)
+        self._lbl_rest_url = QLabel(_('URL:'), self)
+        hlayout1.addWidget(self._lbl_rest_url)
+        self._txt_rest_url = QLineEdit(self)
+        self._txt_rest_url.setPlaceholderText('https://host:port/')
+        hlayout1.addWidget(self._txt_rest_url)
+
+        # S3 backend
+        group_box = QGroupBox(self)
+        self._group_mode_s3 = group_box
+        group_box.setTitle(_('Amazon S3 Settings'))
+        tab_layout.addWidget(group_box)
+
+        vlayout = QVBoxLayout(group_box)
+        grid = QGridLayout()
+        vlayout.addLayout(grid)
+
+        grid.addWidget(QLabel(_('Endpoint:'), self), 0, 0)
+        self._txt_s3_endpoint = QLineEdit(self)
+        self._txt_s3_endpoint.setPlaceholderText('s3.amazonaws.com')
+        self._txt_s3_endpoint.setText('s3.amazonaws.com')
+        grid.addWidget(self._txt_s3_endpoint, 0, 1)
+
+        grid.addWidget(QLabel(_('Bucket:'), self), 1, 0)
+        self._txt_s3_bucket = QLineEdit(self)
+        grid.addWidget(self._txt_s3_bucket, 1, 1)
+
+        grid.addWidget(QLabel(_('Path:'), self), 2, 0)
+        self._txt_s3_path = QLineEdit(self)
+        grid.addWidget(self._txt_s3_path, 2, 1)
+
+        grid.addWidget(QLabel(_('Access Key ID:'), self), 3, 0)
+        self._txt_s3_access_key = QLineEdit(self)
+        grid.addWidget(self._txt_s3_access_key, 3, 1)
+
+        grid.addWidget(QLabel(_('Secret Access Key:'), self), 4, 0)
+        self._txt_s3_secret_key = QLineEdit(self)
+        self._txt_s3_secret_key.setEchoMode(QLineEdit.EchoMode.Password)
+        grid.addWidget(self._txt_s3_secret_key, 4, 1)
+
+        # B2 backend
+        group_box = QGroupBox(self)
+        self._group_mode_b2 = group_box
+        group_box.setTitle(_('Backblaze B2 Settings'))
+        tab_layout.addWidget(group_box)
+
+        vlayout = QVBoxLayout(group_box)
+        grid = QGridLayout()
+        vlayout.addLayout(grid)
+
+        grid.addWidget(QLabel(_('Account ID:'), self), 0, 0)
+        self._txt_b2_account_id = QLineEdit(self)
+        grid.addWidget(self._txt_b2_account_id, 0, 1)
+
+        grid.addWidget(QLabel(_('Account Key:'), self), 1, 0)
+        self._txt_b2_account_key = QLineEdit(self)
+        self._txt_b2_account_key.setEchoMode(QLineEdit.EchoMode.Password)
+        grid.addWidget(self._txt_b2_account_key, 1, 1)
+
+        grid.addWidget(QLabel(_('Bucket:'), self), 2, 0)
+        self._txt_b2_bucket = QLineEdit(self)
+        grid.addWidget(self._txt_b2_bucket, 2, 1)
+
+        grid.addWidget(QLabel(_('Path:'), self), 3, 0)
+        self._txt_b2_path = QLineEdit(self)
+        grid.addWidget(self._txt_b2_path, 3, 1)
+
+        # Azure backend
+        group_box = QGroupBox(self)
+        self._group_mode_azure = group_box
+        group_box.setTitle(_('Azure Blob Storage Settings'))
+        tab_layout.addWidget(group_box)
+
+        vlayout = QVBoxLayout(group_box)
+        grid = QGridLayout()
+        vlayout.addLayout(grid)
+
+        grid.addWidget(QLabel(_('Account Name:'), self), 0, 0)
+        self._txt_azure_account_name = QLineEdit(self)
+        grid.addWidget(self._txt_azure_account_name, 0, 1)
+
+        grid.addWidget(QLabel(_('Account Key:'), self), 1, 0)
+        self._txt_azure_account_key = QLineEdit(self)
+        self._txt_azure_account_key.setEchoMode(QLineEdit.EchoMode.Password)
+        grid.addWidget(self._txt_azure_account_key, 1, 1)
+
+        grid.addWidget(QLabel(_('Container:'), self), 2, 0)
+        self._txt_azure_container = QLineEdit(self)
+        grid.addWidget(self._txt_azure_container, 2, 1)
+
+        grid.addWidget(QLabel(_('Path:'), self), 3, 0)
+        self._txt_azure_path = QLineEdit(self)
+        grid.addWidget(self._txt_azure_path, 3, 1)
+
+        # GCS backend
+        group_box = QGroupBox(self)
+        self._group_mode_gs = group_box
+        group_box.setTitle(_('Google Cloud Storage Settings'))
+        tab_layout.addWidget(group_box)
+
+        vlayout = QVBoxLayout(group_box)
+        grid = QGridLayout()
+        vlayout.addLayout(grid)
+
+        grid.addWidget(QLabel(_('Project ID:'), self), 0, 0)
+        self._txt_gs_project_id = QLineEdit(self)
+        grid.addWidget(self._txt_gs_project_id, 0, 1)
+
+        grid.addWidget(QLabel(_('Bucket:'), self), 1, 0)
+        self._txt_gs_bucket = QLineEdit(self)
+        grid.addWidget(self._txt_gs_bucket, 1, 1)
+
+        grid.addWidget(QLabel(_('Path:'), self), 2, 0)
+        self._txt_gs_path = QLineEdit(self)
+        grid.addWidget(self._txt_gs_path, 2, 1)
+
+        vlayout.addWidget(QLabel(
+            '<em>' +
+            _('Note: Set GOOGLE_APPLICATION_CREDENTIALS environment '
+              'variable to your service account JSON key file path.') +
+            '</em>', self))
 
         # encfs
         self._group_mode_local_encfs = self._group_mode_local
-        self._group_mode_ssh_encfs = self._group_mode_ssh
 
         # gocryptfs
         self._group_mode_local_gocrypt = self._group_mode_local
@@ -324,7 +421,7 @@ class GeneralTab(QDialog):
         backup_mode = self.config.snapshotsMode()
         self._combo_modes.select_by_data(backup_mode)
 
-        # If the profile us an deprecated backup mode (#1734)
+        # If the profile uses a deprecated backup mode (#1734)
         if 'encfs' in backup_mode:
             self._combo_modes.unhide_by_data(backup_mode)
 
@@ -332,28 +429,38 @@ class GeneralTab(QDialog):
         self._edit_backup_path.setText(
             self.config.snapshotsPath(mode='local'))
 
-        # SSH
-        self._txt_ssh_host.setText(self.config.sshHost())
-        self._txt_ssh_port.setText(str(self.config.sshPort()))
-        self._txt_ssh_user.setText(self.config.sshUser())
-        self._txt_ssh_path.setText(self.config.sshSnapshotsPath())
+        # SFTP
+        self._txt_sftp_host.setText(self.config.sftpHost())
+        self._txt_sftp_port.setText(str(self.config.sftpPort()))
+        self._txt_sftp_user.setText(self.config.sftpUser())
+        self._txt_sftp_path.setText(self.config.sftpPath())
 
-        # SSH: Priate key file
-        val = self.config.sshPrivateKeyFile()
+        # REST
+        self._txt_rest_url.setText(self.config.restUrl())
 
-        if val is False:
-            # using key is disabled
-            val = None
+        # S3
+        self._txt_s3_endpoint.setText(self.config.s3Endpoint())
+        self._txt_s3_bucket.setText(self.config.s3Bucket())
+        self._txt_s3_path.setText(self.config.s3Path())
+        self._txt_s3_access_key.setText(self.config.s3AccessKeyId())
+        self._txt_s3_secret_key.setText(self.config.s3SecretAccessKey())
 
-        elif val is None:
-            # Select key by default if present
-            try:
-                val = sshtools.get_private_ssh_key_files()[0]
-            except IndexError:
-                # no key available
-                pass
+        # B2
+        self._txt_b2_account_id.setText(self.config.b2AccountId())
+        self._txt_b2_account_key.setText(self.config.b2AccountKey())
+        self._txt_b2_bucket.setText(self.config.b2Bucket())
+        self._txt_b2_path.setText(self.config.b2Path())
 
-        self.key_selector.set_key(Path(val) if val else val)
+        # Azure
+        self._txt_azure_account_name.setText(self.config.azureAccountName())
+        self._txt_azure_account_key.setText(self.config.azureAccountKey())
+        self._txt_azure_container.setText(self.config.azureContainer())
+        self._txt_azure_path.setText(self.config.azurePath())
+
+        # GCS
+        self._txt_gs_project_id.setText(self.config.gsProjectId())
+        self._txt_gs_bucket.setText(self.config.gsBucket())
+        self._txt_gs_path.setText(self.config.gsPath())
 
         # local_encfs
         if self.mode == 'local_encfs':
@@ -424,12 +531,8 @@ class GeneralTab(QDialog):
 
         mount_kwargs = {}
 
-        if mode in ('ssh', 'local_encfs'):
+        if mode == 'local_encfs':
             mount_kwargs = {'password': password_1}
-
-        elif mode == 'ssh_encfs':
-            mount_kwargs = {'ssh_password': password_1,
-                            'encfs_password': password_2}
 
         self.config.setHostUserProfile(
             self._txt_host.text(),
@@ -437,20 +540,38 @@ class GeneralTab(QDialog):
             self.txt_profile.text()
         )
 
-        # SSH
-        self.config.setSshHost(self._txt_ssh_host.text())
-        self.config.setSshPort(self._txt_ssh_port.text())
-        self.config.setSshUser(self._txt_ssh_user.text())
-        sshproxy_vals = self._wdg_ssh_proxy.values()
-        self.config.setSshProxyHost(sshproxy_vals['host'])
-        self.config.setSshProxyPort(sshproxy_vals['port'])
-        self.config.setSshProxyUser(sshproxy_vals['user'])
-        self.config.setSshSnapshotsPath(self._txt_ssh_path.text())
+        # SFTP settings
+        self.config.setSftpHost(self._txt_sftp_host.text())
+        self.config.setSftpPort(self._txt_sftp_port.text())
+        self.config.setSftpUser(self._txt_sftp_user.text())
+        self.config.setSftpPath(self._txt_sftp_path.text())
 
-        # SSH key file
-        if mode in ('ssh', 'ssh_encfs'):
-            key_file = self.key_selector.get_key()
-            self.config.setSshPrivateKeyFile(str(key_file) if key_file else '')
+        # REST settings
+        self.config.setRestUrl(self._txt_rest_url.text())
+
+        # S3 settings
+        self.config.setS3Endpoint(self._txt_s3_endpoint.text())
+        self.config.setS3Bucket(self._txt_s3_bucket.text())
+        self.config.setS3Path(self._txt_s3_path.text())
+        self.config.setS3AccessKeyId(self._txt_s3_access_key.text())
+        self.config.setS3SecretAccessKey(self._txt_s3_secret_key.text())
+
+        # B2 settings
+        self.config.setB2AccountId(self._txt_b2_account_id.text())
+        self.config.setB2AccountKey(self._txt_b2_account_key.text())
+        self.config.setB2Bucket(self._txt_b2_bucket.text())
+        self.config.setB2Path(self._txt_b2_path.text())
+
+        # Azure settings
+        self.config.setAzureAccountName(self._txt_azure_account_name.text())
+        self.config.setAzureAccountKey(self._txt_azure_account_key.text())
+        self.config.setAzureContainer(self._txt_azure_container.text())
+        self.config.setAzurePath(self._txt_azure_path.text())
+
+        # GCS settings
+        self.config.setGsProjectId(self._txt_gs_project_id.text())
+        self.config.setGsBucket(self._txt_gs_bucket.text())
+        self.config.setGsPath(self._txt_gs_path.text())
 
         # save local_encfs
         self.config.setLocalEncfsPath(self._edit_backup_path.text())
@@ -474,7 +595,11 @@ class GeneralTab(QDialog):
         self.config.setPassword(password_1, mode=mode)
         self.config.setPassword(password_2, mode=mode, pw_id=2)
 
-        if mode != 'local':
+        if mode not in ('local', 'local_encfs', 'local_gocryptfs'):
+            # For remote restic backends, we don't need mount checking
+            # Restic handles remote access natively
+            pass
+        elif mode != 'local':
             mnt = mount.Mount(cfg=self.config, tmp_mount=True, parent=self)
             hash_id = self._do_alot_pre_mount_checking(mnt, mount_kwargs)
 
@@ -485,21 +610,35 @@ class GeneralTab(QDialog):
         if mode == 'local':
             self.config.set_snapshots_path(self._edit_backup_path.text())
 
+        # Build and store the restic repo URI
+        if mode in self.config.RESTIC_MODES:
+            try:
+                repo_uri = self.config.buildResticRepoUri()
+                self.config.setResticRepo(repo_uri)
+            except ValueError as ex:
+                messagebox.critical(self, str(ex))
+                return False
+
+        # Store restic password
+        if mode in self.config.RESTIC_MODES and password_1:
+            self.config.setResticPassword(password_1)
+
         snapshots_mountpoint = self.config.get_snapshots_mountpoint(
             tmp_mount=True)
 
-        success = tools.validate_and_prepare_snapshots_path(
-            path=snapshots_mountpoint,
-            host_user_profile=self.config.hostUserProfile(),
-            mode=mode,
-            copy_links=self.config.copyLinks(),
-            error_handler=self.config.notifyError)
+        if mode == 'local':
+            success = tools.validate_and_prepare_snapshots_path(
+                path=snapshots_mountpoint,
+                host_user_profile=self.config.hostUserProfile(),
+                mode=mode,
+                copy_links=self.config.copyLinks(),
+                error_handler=self.config.notifyError)
 
-        if success is False:
-            return False
+            if success is False:
+                return False
 
         # umount
-        if mode != 'local':
+        if mode not in ('local',) + tuple(self.config.RESTIC_MODES):
             try:
                 mnt.umount(hash_id=hash_id)
 
@@ -540,89 +679,6 @@ class GeneralTab(QDialog):
                 mode=self.config.snapshotsMode(),
                 first_run=True,
                 **mount_kwargs)
-
-        except NoPubKeyLogin as ex:
-            logger.error(str(ex), self)
-
-            if not self.config.sshPrivateKeyFile_enabled():
-                # Configured without explicit SSH key file
-                messagebox.critical(self, str(ex))
-                return False
-
-            question = (
-                '<p>' + _('An error occurred while attempting to log in to '
-                          'the remote host. The following error message was '
-                          'returned:')
-                + '</p><p>' + str(ex) + '</p><p>'
-                + _('To enable password-less login, the public SSH key can be '
-                    'copied to the remote host.')
-                + '</p><p>'
-                + _('Proceed with copying the SSH key?')
-                + '</p>'
-            )
-
-            answer = messagebox.warning(text=question, as_question=True)
-
-            if not answer:
-                return False
-
-            rc_copy_id = sshtools.sshCopyId(
-                self.config.sshPrivateKeyFile() + '.pub',
-                self.config.sshUser(),
-                self.config.sshHost(),
-                port=str(self.config.sshPort()),
-                proxy_user=self.config.sshProxyUser(),
-                proxy_host=self.config.sshProxyHost(),
-                proxy_port=self.config.sshProxyPort(),
-                # This will open an extra input dialog to ask for the
-                # SSH password.
-                askPass=tools.which('backintime-askpass'),
-                cipher=self.config.sshCipher()
-            )
-
-            if not rc_copy_id:
-                messagebox.warning(_(
-                    'The public SSH key could not be copied. This may '
-                    'be due to a connection or permission issue.'
-                ))
-                return False
-
-            # --- DEV NOTE TODO ---
-            # Why this recursive call?
-            return self._parent_dialog.save_profile()
-
-        except KnownHost as ex:
-            logger.error(str(ex), self)
-            fingerprint, hashed_key, key_type = sshtools.sshHostKey(
-                host=self.config.sshHost(),
-                port=str(self.config.sshPort()))
-
-            if not fingerprint:
-                messagebox.critical(self, str(ex))
-                return False
-
-            msg = (
-                '<p>'
-                + _("The authenticity of host {host} can't be "
-                    "established.").format(host=self.config.sshHost())
-                + '</p><p>'
-                + _('{keytype} key fingerprint is:').format(keytype=key_type)
-                + '</p><p><code>'
-                + fingerprint
-                + '</code></p><p>'
-                + _('Please verify this fingerprint. Add it to the '
-                    '"known_hosts" file?')
-                + '</p>'
-            )
-
-            if messagebox.question(msg):
-                sshtools.writeKnownHostsFile(hashed_key)
-
-                # --- DEV NOTE TODO ---
-                # AGAIN: Why this recursive call?
-                return self.saveProfile()
-
-            return False
 
         except MountException as ex:
             messagebox.critical(self, str(ex))
@@ -731,71 +787,11 @@ class GeneralTab(QDialog):
 
         return False
 
-    def _slot_ssh_private_key_file_clicked(self):
-        key_file = self.key_selector.get_key()
-
-        if key_file:
-            start_dir = key_file.parent
-        else:
-            start_dir = DIR_SSH_KEYS
-
-        file_dialog = FileDialog(
-            parent=self,
-            title=_('SSH private key'),
-            start_dir=start_dir,
-            allow_multiselection=False
-        )
-
-        key_file = file_dialog.result()
-
-        if not key_file:
-            return
-
-        # No public key
-        if key_file.suffix.lower() == '.pub':
-            title = _('Invalid file: Not a private SSH key')
-            msg = _('The selected file ({path}) is a public SSH key. '
-                    'Please choose the corresponding private key file instead '
-                    '(without ".pub").').format(path=key_file)
-            messagebox.warning(msg, title, self)
-
-            return
-
-        # self.txtSshPrivateKeyFile.setText(str(key_file))
-        self.key_selector.add_and_select_key(key_file)
-
-    def _slot_ssh_key_gen_clicked(self):
-
-        default_keyfile_name = sshtools.determine_default_ssh_key_filename()
-
-        if not default_keyfile_name:
-            msg = 'Unable to determine the default filename for new ' \
-                'generated ssh keys used by "ssh-keygen".'
-            logger.critical(msg)
-            messagebox.critical(self, msg)
-            return
-
-        key_file_path = DIR_SSH_KEYS / default_keyfile_name
-
-        if key_file_path.exists():
-            msg = _('The file {path} already exists. Cannot create a new '
-                    'SSH key with that name.').format(path=key_file_path)
-            messagebox.critical(self, msg)
-            return
-
-        # Generate the key
-        if sshtools.sshKeyGen(str(key_file_path)):
-            self.key_selector.add_and_select_key(key_file_path)
-            return
-
-        msg = _('Failed to create new SSH key in {path}.') \
-            .format(path=key_file_path)
-        messagebox.critical(self, msg)
-
     def _slot_full_path_changed(self, _text: Any):
-        if self.mode in ('ssh', 'ssh_encfs'):
-            path = self._txt_ssh_path.text()
+        mode = self.mode
 
+        if mode == 'sftp':
+            path = self._txt_sftp_path.text()
         else:
             path = self._edit_backup_path.text()
 
@@ -815,7 +811,7 @@ class GeneralTab(QDialog):
 
     def handle_combo_modes_changed(self):
         """Hide/show widget elements related to one of
-        the four snapshot modes.
+        the snapshot modes.
 
         This is not a slot connected to a signal. But it is called by the
         parent dialog.
@@ -823,19 +819,22 @@ class GeneralTab(QDialog):
         # Mode selected in the combo box
         active_mode = self.get_active_snapshots_mode()
 
-        # state_data = StateData()
-        # profile_state = state_data.profile(self.config.currentProfile())
-
         # New selected mode different from previous one?
         if active_mode != self.mode:
 
             self.mode = active_mode
 
+            # Local path group (local, local_encfs, local_gocryptfs)
             self._group_mode_local.setVisible(
                 active_mode in ('local', 'local_encfs', 'local_gocryptfs'))
 
-            self._group_mode_ssh.setVisible(
-                active_mode in ('ssh', 'ssh_encfs'))
+            # Restic backend groups
+            self._group_mode_sftp.setVisible(active_mode == 'sftp')
+            self._group_mode_rest.setVisible(active_mode == 'rest')
+            self._group_mode_s3.setVisible(active_mode == 's3')
+            self._group_mode_b2.setVisible(active_mode == 'b2')
+            self._group_mode_azure.setVisible(active_mode == 'azure')
+            self._group_mode_gs.setVisible(active_mode == 'gs')
 
             self._wdg_schedule.allow_udev(
                 active_mode in ('local', 'local_encfs', 'local_gocryptfs'))
@@ -848,7 +847,7 @@ class GeneralTab(QDialog):
                     self._edit_backup_path.setText('')
 
             # Don't offer deprecated modes (#1734)
-            modes_to_hide = {'local_encfs', 'ssh_encfs'} - {active_mode}
+            modes_to_hide = {'local_encfs'} - {active_mode}
             for hide in modes_to_hide:
                 self._combo_modes.hide_by_data(hide)
 
@@ -876,7 +875,7 @@ class GeneralTab(QDialog):
             self._group_password1.hide()
 
         # EncFS deprecation warnings (see #1734)
-        if active_mode in ('local_encfs', 'ssh_encfs'):
+        if active_mode == 'local_encfs':
             self._lbl_encfs_warning.show()
 
             # # Workaround to avoid showing the warning messagebox just when

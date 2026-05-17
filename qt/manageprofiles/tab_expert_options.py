@@ -10,7 +10,7 @@
 # This file is part of the program "Back In Time" which is released under GNU
 # General Public License v2 (GPLv2). See LICENSES directory or go to
 # <https://spdx.org/licenses/GPL-2.0-or-later.html>.
-"""About Export Options tab"""
+"""About Expert Options tab"""
 from PyQt6.QtWidgets import (QDialog,
                              QVBoxLayout,
                              QHBoxLayout,
@@ -24,7 +24,6 @@ from config import Config
 import qttools
 import messagebox
 from manageprofiles.statebindcheckbox import StateBindCheckBox
-from manageprofiles.copylinkswidget import CopySymlinksWidget
 from bitwidgets import HLineWidget
 
 
@@ -49,9 +48,9 @@ class ExpertOptionsTab(QDialog):
         tab_layout.addWidget(label)
         tab_layout.addWidget(HLineWidget())
 
-        # --- rsync with nice ---
+        # --- restic with nice ---
         tab_layout.addWidget(QLabel(
-            _("Run 'rsync' with '{cmd}':").format(cmd='nice')))
+            _("Run 'restic' with '{cmd}':").format(cmd='nice')))
 
         grid = QGridLayout()
         grid.setColumnMinimumWidth(0, 20)  # left indent
@@ -69,9 +68,9 @@ class ExpertOptionsTab(QDialog):
             self)
         grid.addWidget(self._cb_nice_on_remote, 1, 1)
 
-        # --- rsync with ionice ---
+        # --- restic with ionice ---
         tab_layout.addWidget(QLabel(
-            _("Run 'rsync' with '{cmd}':").format(cmd='ionice')))
+            _("Run 'restic' with '{cmd}':").format(cmd='ionice')))
         grid = QGridLayout()
         grid.setColumnMinimumWidth(0, 20)
         tab_layout.addLayout(grid)
@@ -94,9 +93,9 @@ class ExpertOptionsTab(QDialog):
             self)
         grid.addWidget(self._cb_ionice_on_remote, 2, 1)
 
-        # --- rsync with nocache ---
+        # --- restic with nocache ---
         tab_layout.addWidget(QLabel(
-            _("Run 'rsync' with '{cmd}':").format(cmd='nocache')))
+            _("Run 'restic' with '{cmd}':").format(cmd='nocache')))
 
         grid = QGridLayout()
         grid.setColumnMinimumWidth(0, 20)
@@ -160,7 +159,7 @@ class ExpertOptionsTab(QDialog):
         self._spb_bwlimit.setRange(0, 1000000)
 
         self._cb_bwlimit = StateBindCheckBox(
-            _('Limit rsync bandwidth usage:'), self, self._spb_bwlimit)
+            _('Limit bandwidth usage:'), self, self._spb_bwlimit)
         hlayout.addWidget(self._cb_bwlimit)
         hlayout.addWidget(self._spb_bwlimit)
         hlayout.addStretch()
@@ -168,36 +167,11 @@ class ExpertOptionsTab(QDialog):
         qttools.set_wrapped_tooltip(
             self._cb_bwlimit,
             [
-                "Uses 'rsync --bwlimit=RATE'. From 'man rsync':",
+                "Uses restic's '--limit-upload' and '--limit-download'.",
                 'This option allows you to specify the maximum transfer rate '
-                'for the data sent over the socket, specified in units per '
-                'second. The RATE value can be suffixed with a string to '
-                'indicate a size multiplier, and may be a fractional value '
-                '(e.g. "--bwlimit=1.5m").',
-                'If no suffix is specified, the value will be assumed to be '
-                'in units of 1024 bytes (as if "K" or "KiB" had been '
-                'appended).',
-                'See the --max-size option for a description of all the '
-                'available suffixes. A value of zero specifies no limit.'
+                'for the data sent over the network, specified in KiB/sec.',
                 '',
-                'For backward-compatibility reasons, the rate limit will be '
-                'rounded to the nearest KiB unit, so no rate smaller than '
-                '1024 bytes per second is possible.',
-                '',
-                'Rsync writes data over the socket in blocks, and this option '
-                'both limits the size of the blocks that rsync writes, and '
-                'tries to keep the average transfer rate at the requested '
-                'limit. Some "burstiness" may be seen where rsync writes out '
-                'a block of data and then sleeps to bring the average rate '
-                'into compliance.',
-                '',
-                'Due to the internal buffering of data, the --progress '
-                'option may not be an accurate reflection on how fast the '
-                'data is being sent. This is because some files can show up '
-                'as being rapidly sent when the data is quickly buffered, '
-                'while other can show up as very slow when the flushing of '
-                'the output buffer occurs. This may be fixed in a future '
-                'version.'
+                'A value of zero specifies no limit.'
             ]
         )
 
@@ -205,15 +179,9 @@ class ExpertOptionsTab(QDialog):
         qttools.set_wrapped_tooltip(
             self._cb_preserve_acl,
             [
-                "Uses 'rsync -A'. From 'man rsync':",
-                'This option causes rsync to update the destination ACLs to '
-                'be the same as the source ACLs. The option also implies '
-                '--perms.',
-                '',
-                'The source and destination systems must have compatible ACL '
-                'entries for this option to work properly. See the '
-                '--fake-super option for a way to backup and restore ACLs '
-                'that are not compatible.'
+                'Restic preserves ACLs natively when backing up files.',
+                'Enable this to explicitly verify ACL preservation during '
+                'backup and restore operations.'
             ]
         )
         tab_layout.addWidget(self._cb_preserve_acl)
@@ -223,26 +191,12 @@ class ExpertOptionsTab(QDialog):
         qttools.set_wrapped_tooltip(
             self._cb_preserve_xattr,
             [
-                "Uses 'rsync -X'. From 'man rsync':",
-                'This option causes rsync to update the destination extended '
-                'attributes to be the same as the source ones.',
-                '',
-                'For systems that support extended-attribute namespaces, a '
-                'copy being done by a super-user copies all namespaces '
-                'except system.*. A normal user only copies the user.* '
-                'namespace. To be able to backup and restore non-user '
-                'namespaces as a normal user, see the --fake-super option.',
-                '',
-                'Note that this option does not copy rsyncs special xattr '
-                'values (e.g. those used by --fake-super) unless you repeat '
-                'the option (e.g. -XX). This "copy all xattrs" mode cannot be '
-                'used with --fake-super.'
+                'Restic preserves extended attributes natively.',
+                'Enable this to explicitly verify xattr preservation during '
+                'backup and restore operations.'
             ]
         )
         tab_layout.addWidget(self._cb_preserve_xattr)
-
-        self._wdg_copy_links = CopySymlinksWidget(self)
-        tab_layout.addWidget(self._wdg_copy_links)
 
         # one file system option
         self._cb_one_filesystem = QCheckBox(
@@ -250,76 +204,30 @@ class ExpertOptionsTab(QDialog):
         qttools.set_wrapped_tooltip(
             self._cb_one_filesystem,
             [
-                "Uses 'rsync --one-file-system'. From 'man rsync':",
-                'This tells rsync to avoid crossing a filesystem boundary '
-                'when recursing. This does not limit the user\'s ability '
-                'to specify items to copy from multiple filesystems, just '
-                'rsync\'s recursion through the hierarchy of each directory '
-                'that the user specified, and also the analogous recursion '
-                'on the receiving side during deletion. Also keep in mind '
-                'that rsync treats a "bind" mount to the same device as '
-                'being on the same filesystem.'
+                "Uses restic's '--one-file-system' flag.",
+                'This tells restic to avoid crossing filesystem boundaries '
+                'when recursing through directories.'
             ]
         )
         tab_layout.addWidget(self._cb_one_filesystem)
 
-        # additional rsync options
-        tooltip = _('Options must be quoted e.g. {example}.').format(
-            example='--exclude-from="/path/to/my exclude file"')
+        # additional restic options
+        tooltip = _('Additional command-line options to pass to restic.')
 
         self._txt_rsync_options = QLineEdit(self)
-        self._txt_rsync_options.editingFinished.connect(
-            self._slot_rsync_options_editing_finished)
         self._txt_rsync_options.setToolTip(tooltip)
 
         self._cb_rsync_options = StateBindCheckBox(
-            _('Paste additional options to rsync'),
+            _('Pass additional options to restic'),
             self,
             self._txt_rsync_options)
 
         self._cb_rsync_options.setToolTip(tooltip)
 
-        # ssh prefix
-
-        rsync_options_value = '--rsync-path="FOO=bar:\\$FOO /usr/bin/rsync"'
-        tooltip = [
-            _('Prefix to run before every command on remote host.'),
-            _("Variables need to be escaped with \\$FOO. This doesn't touch "
-              'rsync. So to add a prefix for rsync use "{example_value}" with '
-              '{rsync_options_value}.').format(
-                  example_value=self._cb_rsync_options.text(),
-                  rsync_options_value=rsync_options_value),
-            '',
-            _('default') + ': ' + self.config.DEFAULT_SSH_PREFIX
-        ]
-        self._txt_ssh_prefix = QLineEdit(self)
-        qttools.set_wrapped_tooltip(self._txt_ssh_prefix, tooltip)
-        self._cb_ssh_prefix = StateBindCheckBox(
-            _('Add prefix to SSH commands'), self, self._txt_ssh_prefix)
-        qttools.set_wrapped_tooltip(self._cb_ssh_prefix, tooltip)
-
         sub_grid = QGridLayout()
         sub_grid.addWidget(self._cb_rsync_options, 0, 0)
         sub_grid.addWidget(self._txt_rsync_options, 0, 1)
-        sub_grid.addWidget(self._cb_ssh_prefix, 1, 0)
-        sub_grid.addWidget(self._txt_ssh_prefix, 1, 1)
         tab_layout.addLayout(sub_grid)
-
-        self._cb_ssh_ping = QCheckBox(_('Check if remote host is online'))
-        qttools.set_wrapped_tooltip(
-            self._cb_ssh_ping,
-            _('Warning: If disabled and the remote host is not available, '
-              'this could lead to some weird errors.')
-        )
-        self._cb_ssh_check_commands = QCheckBox(
-            _('Check if remote host supports all necessary commands.'))
-        qttools.set_wrapped_tooltip(
-            self._cb_ssh_check_commands,
-            _('Warning: If disabled and the remote host does not support all '
-              'necessary commands, this could lead to some weird errors.')
-        )
-        tab_layout.addWidget(self._cb_ssh_ping)
-        tab_layout.addWidget(self._cb_ssh_check_commands)
 
         tab_layout.addStretch()
 
@@ -353,17 +261,9 @@ class ExpertOptionsTab(QDialog):
         self._cb_preserve_acl.setChecked(self.config.preserveAcl())
         self._cb_preserve_xattr.setChecked(self.config.preserveXattr())
 
-        all_links = self.config.copyLinks()
-        only_external = self.config.copyUnsafeLinks()
-        self._wdg_copy_links.set_values(all_links, only_external)
-
         self._cb_one_filesystem.setChecked(self.config.oneFileSystem())
         self._cb_rsync_options.setChecked(self.config.rsyncOptionsEnabled())
         self._txt_rsync_options.setText(self.config.rsyncOptions())
-        self._cb_ssh_prefix.setChecked(self.config.sshPrefixEnabled())
-        self._txt_ssh_prefix.setText(self.config.sshPrefix())
-        self._cb_ssh_ping.setChecked(self.config.sshCheckPingHost())
-        self._cb_ssh_check_commands.setChecked(self.config.sshCheckCommands())
 
     def store_values(self):
         """Store values from GUI into the config"""
@@ -384,48 +284,14 @@ class ExpertOptionsTab(QDialog):
         self.config.setPreserveAcl(self._cb_preserve_acl.isChecked())
         self.config.setPreserveXattr(self._cb_preserve_xattr.isChecked())
 
-        self.config.setCopyLinks(self._wdg_copy_links.all_links)
-        self.config.setCopyUnsafeLinks(
-            self._wdg_copy_links.only_external_links)
-
         self.config.setOneFileSystem(self._cb_one_filesystem.isChecked())
         self.config.setRsyncOptions(self._cb_rsync_options.isChecked(),
                                     self._txt_rsync_options.text())
-        self.config.setSshPrefix(self._cb_ssh_prefix.isChecked(),
-                                 self._txt_ssh_prefix.text())
-        self.config.setSshCheckPingHost(self._cb_ssh_ping.isChecked())
-        self.config.setSshCheckCommands(
-            self._cb_ssh_check_commands.isChecked())
 
     def update_items_state(self, enabled: bool):
         """Update state of widgets based on changed profile mode."""
         self._cb_nice_on_remote.setEnabled(enabled)
         self._cb_ionice_on_remote.setEnabled(enabled)
         self._cb_nocache_on_remote.setEnabled(enabled)
-        self._cb_ssh_prefix.setVisible(enabled)
-        self._txt_ssh_prefix.setVisible(enabled)
-        self._cb_ssh_ping.setVisible(enabled)
-        self._cb_ssh_check_commands.setVisible(enabled)
 
-    def _slot_rsync_options_editing_finished(self):
-        """When editing the rsync options is finished warn and remove
-        --old-args option if present.
-        """
-        txt = self._txt_rsync_options.text()
-
-        if '--old-args' in txt:
-            # No translation for this message because it is a rare case.
-            messagebox.warning(
-                text='Found rsync flag "--old-args". That flag will be removed'
-                ' from the options because it conflicts with the flag "-s" '
-                '(also known as "--secluded-args" or "--protected-args") which'
-                ' is used by Back In Time to force the "new form of argument '
-                'protection" in rsync.',
-                widget_to_center_on=self
-            )
-
-            # Don't leave two-blank spaces between other arguments
-            txt = txt.replace('--old-args ', '')
-            txt = txt.replace(' --old-args', '')
-            txt = txt.replace('--old-args', '')
-            self._txt_rsync_options.setText(txt)
+ 
