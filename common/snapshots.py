@@ -441,7 +441,7 @@ class Snapshots:
                 only_new = False):
         """
         Restore one or more files from snapshot ``sid`` to either original
-        or a different destination. Restore is done with restic. If available
+        or a different destination. Restore is done with restic. If available,
         permissions will be restored from ``fileinfo.bz2``.
 
         Args:
